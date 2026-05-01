@@ -1,0 +1,59 @@
+# =========================
+# Unreal Engine - generated
+# =========================
+Binaries/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.idea/
+.vscode/
+
+# Unreal build artifacts
+Build/
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.pdb
+*.ipch
+*.log
+
+# Visual Studio / project files (regeneratable)
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.xcodeproj
+*.xcworkspace
+
+# =========================
+# OS junk
+# =========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# =========================
+# Unreal automation/packaging
+# =========================
+Saved/Logs/
+Saved/Crashes/
+Saved/StagedBuilds/
+
+# =========================
+# If you use Rider/CLion
+# =========================
+*
+!.gitignore
+!*.uproject
+!Source/
+!Source/**
+!Config/
+!Config/**
