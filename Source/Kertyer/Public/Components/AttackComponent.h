@@ -3,6 +3,7 @@
 #include "Components/ActorComponent.h"
 #include "DataAsset/AttackDH.h"
 #include "Attackif/Attackif.h"
+#include "Attackif/AttackValid.h"
 #include "AttackComponent.generated.h"
 
 class UAnimInstance;
@@ -59,7 +60,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	EAttackDirection GetCurrentDirection() const { return CurrentDirection; }
 
-	// 当前连击窗口剩余时间
+	// 攻击触发计数器
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	int32 GetAttackTriggerCounter() const { return AttackTriggerCounter; }
 
@@ -71,7 +72,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	float GetCurrentDamageModifier() const { return CurrentDamageModifier; }
 
+	// 当前攻击最终伤害
+	UFUNCTION(BlueprintPure, Category = "Combat|Damage")
+	float GetCurrentAttackDamage() const;
 
+	// 开启武器伤害碰撞
+	UFUNCTION(BlueprintCallable, Category = "Combat|Damage")
+	void EnableWeaponDamage();
+
+	// 关闭武器伤害碰撞
+	UFUNCTION(BlueprintCallable, Category = "Combat|Damage")
+	void DisableWeaponDamage();
 
 	// 是否按住攻击键
 	bool bIsAttackKeyDown = false;
@@ -84,10 +95,10 @@ private:
 	void RefreshAttackState(float CurrentTime);
 	// 当前是否存在正在播放的攻击
 	bool HasActiveAttack(float CurrentTime) const;
-	// 状态查询
+	// 是否在采样状态
 	bool IsSamplingState() const;
+	// 是否在锁定状态
 	bool IsLockedState() const;
-	bool IsComboWindowState() const;
 	// 清理采样缓存
 	void ClearSamplingBuffer();
 	// 清理待定攻击
@@ -99,8 +110,6 @@ private:
 	float CurrentWindowTime = 0.0f;
 	// 是否按下右键
 	bool bIsBlocking = false;
-	// 本轮采样开始时间
-	float AttackSamplingStartTime = -1.f;
 	// 攻击开始时间
 	float CurrentAttackStartTime = -1.f;
 	// 攻击结束时间
@@ -109,20 +118,19 @@ private:
 	EAttackDirection CurrentDirection = EAttackDirection::None;
 	// 当前攻击状态
 	EAttackState AttackState = EAttackState::Idle;
+	// 武器伤害窗口是否已开启
+	bool bWeaponDamageWindowOpen = false;
 	// 是否有待定攻击
 	bool bHasPendingAttack = false;
 	// 待定攻击方向
 	EAttackDirection PendingDirection = EAttackDirection::None;
 	// 待定攻击评分
 	float PendingTrackScore = 0.0f;
-	// 处理规则
-	FTrackDetectConfig Config;
-	// 原始采样点
-	TArray<FTrackSample> RawPoints;
+
+	FAttackValid AttackValid;
 	// 当前动画实例
 	TObjectPtr<UAnimInstance> Anim = nullptr;
-	// 累积鼠标轨迹
-	FVector2D AccumulatedMousePosition = FVector2D::ZeroVector;
+
 	// 上一次被接受的攻击输入方向
 	EAttackDirection LastAcceptedInputDirection = EAttackDirection::None;
 
@@ -134,6 +142,9 @@ private:
 
 	// 记录一次已接受的攻击输入
 	void MarkAttackInputAccepted(EAttackDirection Direction, float CurrentTime);
+
+	// 当前攻击基础伤害，来自 DataTable 的 AttackRow->Damage
+	float CurrentBaseDamage = 0.0f;
 
 	// 攻击触发计数器，每次真正出招时 +1，AnimBP 用它判断是否触发新攻击
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat", meta = (AllowPrivateAccess = "true"))

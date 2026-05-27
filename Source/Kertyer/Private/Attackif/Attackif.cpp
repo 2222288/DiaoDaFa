@@ -1,51 +1,69 @@
-
 #include "Attackif/Attackif.h"
-#include "GenericPlatform/GenericPlatformTime.h"
-// 总调度函数
-// 1. 预处理轨迹（几何修正、重采样、平滑，并维护时序锚点）
-// 2. 计算处理后轨迹的几何特征（仅几何）
-// 3. 计算原始采样的速度
-// 4. 汇总方向、得分与可触发攻击标记
-FTrackResult FTrackPreprocessUtils::Transfer(const TArray<FTrackSample>& RawSamples, const FTrackDetectConfig& Config)
+
+void FTrackInputSampler::Reset()
 {
-    FTrackResult OutResult;
+    TrackSamples.Empty();
+    AccumulatedPosition = FVector2D::ZeroVector;
+}
+
+bool FTrackInputSampler::PushInput(
+    const FVector2D& Input,
+    float CurrentTime,
+    float MinSampleDistance)
+{
+    const float SafeMinSampleDistance = FMath::Max(0.0f, MinSampleDistance);
+    const float SafeMinSampleDistanceSq = FMath::Square(SafeMinSampleDistance);
+
+    // 每次采样开始时固定一个局部原点，避免第一段位移被丢掉。
+    if (TrackSamples.IsEmpty())
+    {
+        FTrackSample Origin;
+        Origin.Position = AccumulatedPosition;
+        Origin.TimeSeconds = CurrentTime;
+        TrackSamples.Add(Origin);
+    }
+
+    AccumulatedPosition += Input;
+
+    FTrackSample Sample;
+    Sample.Position = AccumulatedPosition;
+    Sample.TimeSeconds = CurrentTime;
+
+    if ((Sample.Position - TrackSamples.Last().Position).SizeSquared() < SafeMinSampleDistanceSq)
+    {
+        return false;
+    }
+
+    TrackSamples.Add(Sample);
+    return true;
+}
+
+FTrajectoryResult FTrackPreprocessUtils::AnalyzeTrajectory(
+    const TArray<FTrackSample>& RawSamples,
+    const FTrackDetectConfig& Config)
+{
+    FTrajectoryResult Result;
     if (RawSamples.Num() < 2)
     {
-        return OutResult;
+        return Result;
     }
-    const TArray<FTrackSample> ProcessedPoints = PreprocessTrajectory(RawSamples, Config);
-    OutResult = CalculateTrajectoryFeatures(ProcessedPoints, Config);
-    OutResult.SwingSpeed = CalculateRecentSwingSpeed(RawSamples, Config.SpeedWindowSeconds);
-    OutResult.bSpeedValid = OutResult.SwingSpeed >= Config.MinSwingSpeed;
-    OutResult.SpeedScore = NormalizeSpeedScore(OutResult.SwingSpeed, Config.MinSwingSpeed);
 
-    //方向分数
-    const float DirectionScore = OutResult.bValid ? 1.0f : 0.0f;
-    //方向权重
-    const float DirectionWeight = FMath::Max(0.0f, Config.DirectionWeight);
-    //速度权重
-    const float SpeedWeight = FMath::Max(0.0f, Config.SpeedWeight);
-	//权重总和
-    const float WeightSum = DirectionWeight + SpeedWeight;
-    //最终分数计算
-    if (WeightSum > KINDA_SMALL_NUMBER)
-    {
-        OutResult.TrackScore = (DirectionScore * DirectionWeight + OutResult.SpeedScore * SpeedWeight) / WeightSum;
-    }
-    else
-    {
-        OutResult.TrackScore = 0.0f;
-    }
-    OutResult.Direction = Direction(OutResult);
-    OutResult.bCanTriggerAttack = OutResult.bValid && OutResult.bSpeedValid && (OutResult.Direction != EAttackDirection::None);
-    return OutResult;
+    const TArray<FTrackSample> ProcessedPoints = PreprocessTrajectory(RawSamples, Config);
+    Result = CalculateTrajectoryFeatures(ProcessedPoints, Config);
+    Result.Direction = Direction(Result);
+    Result.ProcessedSamples = ProcessedPoints;
+    return Result;
 }
+
+FTrajectoryResult FTrackPreprocessUtils::Transfer(
+    const TArray<FTrackSample>& RawSamples,
+    const FTrackDetectConfig& Config)
+{
+    return AnalyzeTrajectory(RawSamples, Config);
+}
+
 // 预处理轨迹点
 // 该函数只负责轨迹形状优化，不负责速度计算。
-// 这里维护的 TimeSeconds 语义是“时序锚点”：
-// - 新增点会用位置与时间同步插值生成一个合理的时序标签；
-// - 平滑阶段只改 Position，不改 TimeSeconds；
-// - 因此输出中的 TimeSeconds 不等价于平滑后 Position 的真实物理采样时刻。
 // 任何速度、加速度、时间窗口等动态特征计算，必须基于原始采样点完成。
 TArray<FTrackSample> FTrackPreprocessUtils::PreprocessTrajectory(const TArray<FTrackSample>& RawPoints, const FTrackDetectConfig& Config)
 {
@@ -138,10 +156,10 @@ TArray<FTrackSample> FTrackPreprocessUtils::PreprocessTrajectory(const TArray<FT
             0.0f,
             1.0f);
     }
-    const float SpeedScale = FMath::Clamp(RecentMeanSegLen / FMath::Max(ResampleDist, KINDA_SMALL_NUMBER), 0.0f, 1.35f);
+    const float RecentStepScale = FMath::Clamp(RecentMeanSegLen / FMath::Max(ResampleDist, KINDA_SMALL_NUMBER), 0.0f, 1.35f);
     const float JitterScale = 1.0f - TailDirectionConsistency01;
     const float UnstableTailArc = FMath::Clamp(
-        ResampleDist * (1.00f + 0.75f * SpeedScale + 0.95f * JitterScale),
+        ResampleDist * (1.00f + 0.75f * RecentStepScale + 0.95f * JitterScale),
         0.85f * ResampleDist,
         3.60f * ResampleDist);
     int32 FirstUnstableWorkingIndex = Working.Num() - 1;
@@ -161,7 +179,7 @@ TArray<FTrackSample> FTrackPreprocessUtils::PreprocessTrajectory(const TArray<FT
     const int32 ArcTailPointCount = FMath::Max(0, Working.Num() - FirstUnstableWorkingIndex);
     const float NominalTailSegLen = FMath::Max(RecentMeanSegLen, FMath::Max(0.30f * ResampleDist, PointDedupEps));
     const float JitterTail01 = SmoothStep01(FMath::Clamp((JitterScale - 0.08f) / 0.55f, 0.0f, 1.0f));
-    const float LowSpeedTail01 = 1.0f - SmoothStep01(FMath::Clamp((SpeedScale - 0.10f) / 0.95f, 0.0f, 1.0f));
+    const float LowSpeedTail01 = 1.0f - SmoothStep01(FMath::Clamp((RecentStepScale - 0.10f) / 0.95f, 0.0f, 1.0f));
     const float TailBudget01 = FMath::Clamp(0.62f * JitterTail01 + 0.38f * LowSpeedTail01, 0.0f, 1.0f);
     const int32 BudgetTailPointCount = FMath::Clamp(FMath::RoundToInt(FMath::Lerp(0.0f, 3.0f, TailBudget01)), 0, 3);
     const float TailBudgetArc = UnstableTailArc * FMath::Lerp(0.82f, 1.18f, TailBudget01);
@@ -233,8 +251,8 @@ TArray<FTrackSample> FTrackPreprocessUtils::PreprocessTrajectory(const TArray<FT
         StableOutputArcs.Last() = StableInputLength;
     }
     const float TailSpacingBase = ResampleDist * FMath::Lerp(0.16f, 0.28f, TailDirectionConsistency01);
-    const float TailSpeedScale = FMath::Lerp(0.90f, 1.10f, SpeedScale / 1.35f);
-    const float TailMinSpacing = FMath::Max(PointDedupEps, TailSpacingBase * TailSpeedScale);
+    const float TailStepScale = FMath::Lerp(0.90f, 1.10f, RecentStepScale / 1.35f);
+    const float TailMinSpacing = FMath::Max(PointDedupEps, TailSpacingBase * TailStepScale);
     const float TailNearEndMinSpacing = FMath::Max(PointDedupEps, 0.45f * TailMinSpacing);
     TArray<FTrackSample> Output = StableOutput;
     const int32 StableOutputEndIndex = Output.Num() - 1;
@@ -480,10 +498,11 @@ TArray<FTrackSample> FTrackPreprocessUtils::PreprocessTrajectory(const TArray<FT
     Smoothed.Last() = LatestObservedPoint;
     return Smoothed;
 }
+
 // 计算轨迹几何特征
 // 这里只判断是否存在足够长且足够直的有效线段，不参与任何时间相关逻辑。
 // 虽然输入类型为 FTrackSample，但这里只使用 Position，禁止在此处混入 TimeSeconds 判定。
-FTrackResult FTrackPreprocessUtils::CalculateTrajectoryFeatures(
+FTrajectoryResult FTrackPreprocessUtils::CalculateTrajectoryFeatures(
     const TArray<FTrackSample>& Samples,
     const FTrackDetectConfig& Config)
 {
@@ -592,7 +611,7 @@ FTrackResult FTrackPreprocessUtils::CalculateTrajectoryFeatures(
     return Result;
 }
 // 根据有效线段的起点和终点计算攻击方向
-EAttackDirection FTrackPreprocessUtils::Direction(const FTrackResult& Segment)
+EAttackDirection FTrackPreprocessUtils::Direction(const FTrajectoryResult& Segment)
 {
     if (!Segment.bValid)
     {
@@ -623,47 +642,6 @@ EAttackDirection FTrackPreprocessUtils::Direction(const FTrackResult& Segment)
     default: return EAttackDirection::None;
     }
 }
-// 计算最近一段时间窗口内的挥动速度
-// 注意：这里必须使用原始输入 RawSamples，不能使用预处理后的轨迹。
-float FTrackPreprocessUtils::CalculateRecentSwingSpeed(const TArray<FTrackSample>& RawSamples, float WindowSeconds)
-{
-    if (RawSamples.Num() < 2 || WindowSeconds <= KINDA_SMALL_NUMBER)
-    {
-        return 0.0f;
-    }
-    const double EndTime = RawSamples.Last().TimeSeconds;
-    const double StartTimeLimit = EndTime - WindowSeconds;
-    int32 StartIndex = RawSamples.Num() - 1;
-    while (StartIndex > 0 && RawSamples[StartIndex - 1].TimeSeconds >= StartTimeLimit)
-    {
-        --StartIndex;
-    }
-    float Distance = 0.0f;
-    for (int32 i = StartIndex + 1; i < RawSamples.Num(); ++i)
-    {
-        Distance += DistanceBetweenSamples(RawSamples[i - 1], RawSamples[i]);
-    }
-    const double Duration = RawSamples.Last().TimeSeconds - RawSamples[StartIndex].TimeSeconds;
-    if (Duration <= KINDA_SMALL_NUMBER)
-    {
-        return 0.0f;
-    }
-    return Distance / static_cast<float>(Duration);
-}
-// 将速度归一化到 0~1 分数区间
-float FTrackPreprocessUtils::NormalizeSpeedScore(float Speed, float MinSwingSpeed)
-{
-    if (MinSwingSpeed <= KINDA_SMALL_NUMBER)
-    {
-        return 1.0f;
-    }
-    const float Ratio = Speed / MinSwingSpeed;
-    if (Ratio <= 1.0f)
-    {
-        return FMath::Clamp(Ratio * 0.35f, 0.0f, 0.35f);
-    }
-    return FMath::Clamp(0.35f + (Ratio - 1.0f) * 0.65f, 0.35f, 1.0f);
-}
 // 在两个带时间戳的采样点之间做同步插值
 FTrackSample FTrackPreprocessUtils::LerpSample(const FTrackSample& A, const FTrackSample& B, float Alpha)
 {
@@ -677,4 +655,3 @@ float FTrackPreprocessUtils::DistanceBetweenSamples(const FTrackSample& A, const
 {
     return FVector2D::Distance(A.Position, B.Position);
 }
-

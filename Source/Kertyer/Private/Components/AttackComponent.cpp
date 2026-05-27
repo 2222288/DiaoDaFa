@@ -5,11 +5,11 @@
 #include "DataAsset/AttackDH.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
+#include "Character/Base.h"
 #include "GameFramework/Character.h"
 
 UAttackComponent::UAttackComponent()
 {
-	// 需要在 Tick 中释放待定攻击，必须开启 Tick
 	PrimaryComponentTick.bCanEverTick = true;
 }
 
@@ -18,7 +18,6 @@ void UAttackComponent::BeginPlay()
 	Super::BeginPlay();
 
 	AttackState = EAttackState::Idle;
-	AttackSamplingStartTime = -1.f;
 	CurrentAttackStartTime = -1.f;
 	CurrentAttackEndTime = -1.f;
 	CurrentWindowTime = 0.0f;
@@ -41,22 +40,28 @@ void UAttackComponent::TickComponent(
 		return;
 	}
 
+	//该帧时间
 	const float CurrentTime = World->GetTimeSeconds();
 
-	// 先根据时间线和按键状态刷新状态机
+	//实时监测状态机
 	RefreshAttackState(CurrentTime);
 
-	// 只要离开锁定期，就可以释放待定攻击
-	// 这里会覆盖：
-	// 1. 连击窗口刚打开
-	// 2. 极端情况下攻击已经播完
+	// 待定攻击处理
 	if (bHasPendingAttack && !IsLockedState())
 	{
 		PerformAttack(PendingDirection, PendingTrackScore);
 	}
 
-	// 当前攻击完全结束后，允许方向回归 None
-	if (!HasActiveAttack(CurrentTime) && !bHasPendingAttack)
+	//当前是否正在攻击
+	const bool bAttackActive = HasActiveAttack(CurrentTime);
+
+
+	if (!bAttackActive && bWeaponDamageWindowOpen)
+	{
+		DisableWeaponDamage();
+	}
+
+	if (!bAttackActive && !bHasPendingAttack)
 	{
 		CurrentDirection = EAttackDirection::None;
 	}
@@ -87,8 +92,6 @@ void UAttackComponent::BeginAttackSampling(float CurrentTime)
 	LastAcceptedInputTime = -10000.0f;
 
 	bIsAttackKeyDown = true;
-	AttackSamplingStartTime = CurrentTime;
-
 	ClearSamplingBuffer();
 	RefreshAttackState(CurrentTime);
 }
@@ -96,7 +99,6 @@ void UAttackComponent::BeginAttackSampling(float CurrentTime)
 void UAttackComponent::EndAttackSampling()
 {
 	bIsAttackKeyDown = false;
-	AttackSamplingStartTime = -1.f;
 
 	LastAcceptedInputDirection = EAttackDirection::None;
 	LastAcceptedInputTime = -10000.0f;
@@ -110,52 +112,28 @@ void UAttackComponent::EndAttackSampling()
 
 void UAttackComponent::CacheMouseInput(const FVector2D& Input, float CurrentTime)
 {
-	// 只有采样态才接收输入
+	// 只有采样态才接收输入。组件只负责把输入交给 AttackValid，
+	// 不再直接维护 RawPoints、累计坐标或采样窗口。
 	if (!IsSamplingState())
 	{
 		return;
 	}
 
-	AccumulatedMousePosition += Input;
-
-	FTrackSample TimedSample;
-	TimedSample.Position = AccumulatedMousePosition;
-	TimedSample.TimeSeconds = CurrentTime;
-
-	// 距离上一个点太小则丢弃
-	if (!RawPoints.IsEmpty() &&
-		(AccumulatedMousePosition - RawPoints.Last().Position).SizeSquared() < FMath::Square(MinSampleDistance))
+	FAttackValidResult Result;
+	if (!AttackValid.PushInput(Input, CurrentTime, MinSampleDistance, Result))
 	{
 		return;
 	}
 
-	RawPoints.Add(TimedSample);
-
-	FTrackResult Result;
-	Result.bValid = false;
-	Result.Direction = EAttackDirection::None;
-	Result.TrackScore = 0.0f;
-
-	// 每 2 个点尝试识别一次
-	if (RawPoints.Num() % 2 == 0)
-	{
-		Result = FTrackPreprocessUtils::Transfer(RawPoints, Config);
-	}
-
-	if (!Result.bCanTriggerAttack)
-	{
-		return;
-	}
-
-	if (Result.Direction == EAttackDirection::None)
+	if (!Result.bCanTriggerAttack || Result.Direction == EAttackDirection::None)
 	{
 		return;
 	}
 
 	if (!CanAcceptAttackInput(Result.Direction, CurrentTime))
 	{
-		// 同方向连续输入或切换过快，直接清掉当前轨迹
-		// 不清的话，后续点继续叠加，仍可能马上再次识别成功
+		// 同方向连续输入或切换过快，直接清掉当前轨迹。
+		// 不清的话，后续点继续叠加，仍可能马上再次识别成功。
 		ClearSamplingBuffer();
 		return;
 	}
@@ -177,11 +155,11 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		return;
 	}
 
+	// 该帧时间
 	const float CurrentTime = World->GetTimeSeconds();
 	RefreshAttackState(CurrentTime);
 
-	// 只在“锁定期”拦截同向重复抖动
-	// 不再永久封死同方向连续出招
+	// 锁定期内的同向输入直接丢弃
 	if (IsLockedState() && Direction == CurrentDirection)
 	{
 		ClearSamplingBuffer();
@@ -239,8 +217,8 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	}
 
 
-
-	// 动画确认成功后再更新伤害倍率和时间线
+	// 动画确认成功后再更新伤害和时间线
+	CurrentBaseDamage = AttackRow->Damage;
 	CurrentDamageModifier = NextAttackDamageModifier;
 	NextAttackDamageModifier = TrackScore;
 
@@ -249,6 +227,9 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	CurrentAttackEndTime = CurrentAttackStartTime + PlayedLength;
 	CurrentDirection = Direction;
 	AttackTriggerCounter++;
+
+	//重置
+	EnableWeaponDamage();
 
 	UE_LOG(LogTemp, Warning, TEXT("本次攻击方向: %d, 轨迹得分: %f, 下一击伤害倍率: %f"),
 		static_cast<int32>(Direction),
@@ -299,6 +280,7 @@ void UAttackComponent::StopBlock()
 
 void UAttackComponent::RefreshAttackState(float CurrentTime)
 {
+	//当前是否存在正在播放的攻击
 	const bool bActiveAttack = HasActiveAttack(CurrentTime);
 
 	if (!bActiveAttack)
@@ -312,10 +294,12 @@ void UAttackComponent::RefreshAttackState(float CurrentTime)
 		return;
 	}
 
+	//窗口期时间
 	const float Window = FMath::Max(0.1f, CurrentWindowTime);
+	//窗口期结束时间
 	const float WindowStartTime = CurrentAttackStartTime + Window;
 
-	// 修复边界空点：窗口开启吃等号
+	// 是否处于窗口期
 	const bool bWindowOpen = (CurrentTime >= WindowStartTime);
 
 	if (bIsAttackKeyDown)
@@ -350,16 +334,9 @@ bool UAttackComponent::IsLockedState() const
 		|| AttackState == EAttackState::SamplingLocked;
 }
 
-bool UAttackComponent::IsComboWindowState() const
-{
-	return AttackState == EAttackState::ComboWindowOpen
-		|| AttackState == EAttackState::SamplingComboWindow;
-}
-
 void UAttackComponent::ClearSamplingBuffer()
 {
-	RawPoints.Empty();
-	AccumulatedMousePosition = FVector2D::ZeroVector;
+	AttackValid.Reset();
 }
 
 void UAttackComponent::ClearPendingAttack()
@@ -403,7 +380,6 @@ bool UAttackComponent::CanAcceptAttackInput(EAttackDirection Direction, float Cu
 	const float Elapsed = CurrentTime - LastAcceptedInputTime;
 
 	// 同方向连续输入直接忽略
-	// 这正是解决“鼠标一直向前移动就一直向前攻击”的关键
 	if (Direction == LastAcceptedInputDirection)
 	{
 		return false;
@@ -439,4 +415,31 @@ bool UAttackComponent::IsAttackActive() const
 	}
 
 	return HasActiveAttack(World->GetTimeSeconds());
+}
+
+float UAttackComponent::GetCurrentAttackDamage() const
+{
+	return CurrentBaseDamage * CurrentDamageModifier;
+}
+
+void UAttackComponent::EnableWeaponDamage()
+{
+	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
+	if (!OwnerCharacter)
+	{
+		return;
+	}
+	bWeaponDamageWindowOpen = true;
+	OwnerCharacter->EnableWeaponDamage();
+}
+
+void UAttackComponent::DisableWeaponDamage()
+{
+	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
+	if (!OwnerCharacter)
+	{
+		return;
+	}
+	bWeaponDamageWindowOpen = false;
+	OwnerCharacter->DisableWeaponDamage();
 }

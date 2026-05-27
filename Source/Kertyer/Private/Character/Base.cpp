@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Character/Base.h"
@@ -7,21 +7,32 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/InputComponent.h"
 #include "EnhancedInputComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Components/AttackComponent.h"
+#include "Character/Hostile.h"
 #include "EnhancedInputSubsystems.h"
 
 
 ABase::ABase() {
-    //ÉúÃüÖÜÆÚ¹ÜÀíÊÇ·ñ¿ªÆô
+    //ç”Ÿå‘½å‘¨æœŸç®¡ç†æ˜¯å¦å¼€å¯
     PrimaryActorTick.bCanEverTick = true;
 
-    // ´´½¨ÎäÆ÷²¢¹ÒÔØ CreateDefaultSubobject¶Ô´´½¨µÄWeaponMesh½øĞĞ³õÊ¼»¯ UStaticMeshComponentÊÇ¾²Ì¬Íø¸ñÌå×é¼şµÄÖ¸ÕëÀàĞÍ TEXTÔÚÀ¶Í¼ÖĞÏÔÊ¾µÄÃû×Ö
+    // åˆ›å»ºæ­¦å™¨å¹¶æŒ‚è½½ CreateDefaultSubobjectå¯¹åˆ›å»ºçš„WeaponMeshè¿›è¡Œåˆå§‹åŒ– UStaticMeshComponentæ˜¯é™æ€ç½‘æ ¼ä½“ç»„ä»¶çš„æŒ‡é’ˆç±»å‹ TEXTåœ¨è“å›¾ä¸­æ˜¾ç¤ºçš„åå­—
     WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
-    // ÕâÀï¼ÙÉèÄúµÄ¹Ç÷ÀÉÏÓĞÒ»¸öÃûÎª"WeaponSocket"µÄ²å²Û Í¨¹ıÎäÆ÷µÄÖ¸Õë´´½¨¾²Ì¬Íø¸ñÌå,²¢°ó¶¨µ½¶ÔÓ¦µÄ¹Ç÷À µÚÒ»¸öÊÇ¸Ã¾²Ì¬Íø¸ñÌå×é¼şµÄÖ¸Õë,µÚ¶şÊÇ°ó¶¨µ½²å²ÛµÄÃû×Ö
+    // è¿™é‡Œå‡è®¾æ‚¨çš„éª¨éª¼ä¸Šæœ‰ä¸€ä¸ªåä¸º"WeaponSocket"çš„æ’æ§½ é€šè¿‡æ­¦å™¨çš„æŒ‡é’ˆåˆ›å»ºé™æ€ç½‘æ ¼ä½“,å¹¶ç»‘å®šåˆ°å¯¹åº”çš„éª¨éª¼ ç¬¬ä¸€ä¸ªæ˜¯è¯¥é™æ€ç½‘æ ¼ä½“ç»„ä»¶çš„æŒ‡é’ˆ,ç¬¬äºŒæ˜¯ç»‘å®šåˆ°æ’æ§½çš„åå­—
     WeaponMesh->SetupAttachment(GetMesh(), FName("hand_r_weapons"));
-    // Ä¬ÈÏ¹Ø±ÕÅö×²£¬·ÀÖ¹ÎäÆ÷ÔÚÕâ¸ö½×¶Î¸ÉÈÅ½ºÄÒÌåÒÆ¶¯
+    // é»˜è®¤å…³é—­ç¢°æ’ï¼Œé˜²æ­¢æ­¦å™¨åœ¨è¿™ä¸ªé˜¶æ®µå¹²æ‰°èƒ¶å›Šä½“ç§»åŠ¨
     WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-    //ÑªÁ¿ÉèÖÃ
+    WeaponMesh->SetGenerateOverlapEvents(true);
+
+    WeaponMesh->SetCollisionObjectType(ECC_WorldDynamic);
+    WeaponMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+    WeaponMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+    WeaponMesh->OnComponentBeginOverlap.AddDynamic(this, &ABase::OnWeaponOverlap);
+
+    //è¡€é‡è®¾ç½®
     MaxHealth = 100.0f;
     CurrentHealth = MaxHealth;
 }
@@ -31,48 +42,140 @@ void ABase::BeginPlay() {
 
 }
 
-//ÖÎÁÆº¯ÊıÊµÏÖ
+//æ²»ç–—å‡½æ•°å®ç°
 void ABase::Treat(float Treatmentamount) {
-    // 1. ·ÀÓùĞÔ±à³Ì£ºÈç¹ûÊÇ¸ºÊıÖÎÁÆ£¨¶¾ÄÌ£¿£©»òÕßÑªÒÑ¾­ÂúÁË£¬Ö±½ÓºöÂÔ
     if (Treatmentamount <= 0.0f || CurrentHealth >= MaxHealth)
     {
         return;
     }
 
-    // 2. ºËĞÄÂß¼­£º¼ÓÑª£¬µ«×î¸ß²»ÄÜ³¬¹ı MaxHealth
-    // FMath::Clamp È·±£½á¹ûÎÈÎÈµØÂäÔÚ [0, MaxHealth] Çø¼äÄÚ
     CurrentHealth = FMath::Clamp(CurrentHealth + Treatmentamount, 0.0f, MaxHealth);
 
-    // 3. ´òÓ¡ÈÕÖ¾£º¿´×ÅÊæ·ş
-    UE_LOG(LogTemp, Warning, TEXT(">> [ÖÎÁÆ] %s »Ø¸´ÁË %f µãÉúÃü£¬µ±Ç°ÑªÁ¿: %f"), *GetName(), Treatmentamount, CurrentHealth);
+    UE_LOG(LogTemp, Warning, TEXT(">> [æ²»ç–—] %s å›å¤äº† %f ç‚¹ç”Ÿå‘½ï¼Œå½“å‰è¡€é‡: %f"), *GetName(), Treatmentamount, CurrentHealth);
 }
 
-// ÖØĞ´ÊÜÉËº¯Êı DamageAmountÉËº¦
-float ABase::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) {
-    // 1. µ÷ÓÃ¸¸ÀàÂß¼­£¨ËäÈ»ACharacterÄ¬ÈÏÃ»¸ÉÉ¶£¬µ«±£ÁôºÃÏ°¹ß£©
-    float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 
-    // ·ÀÓùĞÔ±à³Ì£ºÈç¹ûÑªÒÑ¾­¿ÕÁË£¬¾Í±ğÔÙ¿ÛÁË£¬»òÕßÉËº¦ÊÇ¸ºÊıÒ²²»¹Ü
+float ABase::TakeDamage(
+    float DamageAmount,
+    FDamageEvent const& DamageEvent,
+    AController* EventInstigator,
+    AActor* DamageCauser)
+{
     if (CurrentHealth <= 0.0f || DamageAmount <= 0.0f)
     {
         return 0.0f;
     }
 
-    // 2. ºËĞÄ¿ÛÑª¹«Ê½£ºµ±Ç°ÑªÁ¿ - Êµ¼ÊÉËº¦
-    // FMath::Clamp È·±£ÑªÁ¿²»»á±ä³É¸ºÊı£¬×îĞ¡ÊÇ 0
-    CurrentHealth = FMath::Clamp(CurrentHealth - DamageAmount, 0.0f, MaxHealth);
+    const float ActualDamage = FMath::Min(CurrentHealth, DamageAmount);
 
-    // 3. ´òÓ¡ÈÕÖ¾£¨·½±ãÁìµ¼Äúµ÷ÊÔ£¬¿´µ½µ½µ×¿ÛÁË¶àÉÙÑª£©
-    // %s ÊÇÃû×Ö£¬%f ÊÇ¸¡µãÊı
-    UE_LOG(LogTemp, Warning, TEXT("½ÇÉ« %s ÊÜµ½ %f µãÉËº¦£¬Ê£ÓàÑªÁ¿: %f"), *GetName(), DamageAmount, CurrentHealth);
+    Super::TakeDamage(ActualDamage, DamageEvent, EventInstigator, DamageCauser);
 
-    // 4. ÅĞ¶ÏËÀÍö
+    CurrentHealth = FMath::Clamp(CurrentHealth - ActualDamage, 0.0f, MaxHealth);
+
+    UE_LOG(LogTemp, Warning, TEXT("è§’è‰² %s å—åˆ° %f ç‚¹ä¼¤å®³ï¼Œå‰©ä½™è¡€é‡: %f"),
+        *GetName(),
+        ActualDamage,
+        CurrentHealth);
+
     if (CurrentHealth <= 0.0f)
     {
-        UE_LOG(LogTemp, Error, TEXT("½ÇÉ« %s ÒÑËÀÍö£¡"), *GetName());
-        // ÕâÀïÒÔºó¿ÉÒÔ¼Ó£º²¥·ÅËÀÍö¶¯»­¡¢µôÂä×°±¸¡¢Ïú»ÙActorµÈ
-        // Destroy(); 
+        UE_LOG(LogTemp, Error, TEXT("è§’è‰² %s å·²æ­»äº¡ï¼"), *GetName());
     }
 
     return ActualDamage;
+}
+
+void ABase::EnableWeaponDamage()
+{
+    HitActors.Empty();
+    bWeaponDamageEnabled = true;
+
+
+    if (WeaponMesh)
+    {
+        WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        WeaponMesh->SetGenerateOverlapEvents(true);
+
+        WeaponMesh->SetCollisionObjectType(ECC_WorldDynamic);
+        WeaponMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+        WeaponMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+        WeaponMesh->SetSimulatePhysics(false);
+        WeaponMesh->SetEnableGravity(false);
+    }
+}
+
+void ABase::DisableWeaponDamage()
+{
+    bWeaponDamageEnabled = false;
+
+    if (WeaponMesh)
+    {
+        WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        WeaponMesh->SetGenerateOverlapEvents(false);
+    }
+
+    HitActors.Empty();
+}
+
+void ABase::OnWeaponOverlap(
+    UPrimitiveComponent* OverlappedComponent,
+    AActor* OtherActor,
+    UPrimitiveComponent* OtherComp,
+    int32 OtherBodyIndex,
+    bool bFromSweep,
+    const FHitResult& SweepResult)
+{
+    // ä¸åœ¨æ”»å‡»ä¼¤å®³çª—å£å†…ï¼Œä¸é€ æˆä¼¤å®³
+    if (!bWeaponDamageEnabled)
+    {
+        return;
+    }
+
+    // æ²¡æœ‰ç›®æ ‡ï¼Œæˆ–è€…æ‰“åˆ°è‡ªå·±ï¼Œç›´æ¥è¿”å›
+    if (!OtherActor || OtherActor == this)
+    {
+        return;
+    }
+
+    // åªå…è®¸æ‰“ ABase æˆ– ABase æ´¾ç”Ÿç±»ï¼Œæ¯”å¦‚ AHostileã€AMy
+    ABase* HitCharacter = Cast<ABase>(OtherActor);
+
+    if (!HitCharacter)
+    {
+        return;
+    }
+
+    // é˜²æ­¢åŒä¸€æ¬¡æ”»å‡»é‡å¤å‘½ä¸­åŒä¸€ä¸ªè§’è‰²
+    if (HitActors.Contains(OtherActor))
+    {
+        return;
+    }
+
+    // è®°å½•è¿™ä¸ªè§’è‰²å·²ç»è¢«æœ¬æ¬¡æ”»å‡»æ‰“ä¸­è¿‡
+    HitActors.Add(OtherActor);
+
+    float FinalDamage = 10.0f;
+
+    if (UAttackComponent* AttackComp = FindComponentByClass<UAttackComponent>())
+    {
+        FinalDamage = AttackComp->GetCurrentAttackDamage();
+    }
+    else if (AHostile* HostileAttacker = Cast<AHostile>(this))
+    {
+        FinalDamage = HostileAttacker->GetCurrentAttackDamage();
+    }
+
+    // å¯¹çœŸæ­£è½¬æ¢å‡ºæ¥çš„ HitCharacter é€ æˆä¼¤å®³
+    UGameplayStatics::ApplyDamage(
+        HitCharacter,
+        FinalDamage,
+        GetController(),
+        this,
+        UDamageType::StaticClass()
+    );
+
+    UE_LOG(LogTemp, Warning, TEXT("Weapon hit %s, Damage: %f"),
+        *HitCharacter->GetName(),
+        FinalDamage);
 }

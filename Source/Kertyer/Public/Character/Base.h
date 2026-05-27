@@ -1,11 +1,13 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
+#include "Components/StaticMeshComponent.h"
 #include "Base.generated.h"
+
 
 UCLASS()
 class KERTYER_API ABase : public ACharacter
@@ -16,27 +18,55 @@ public:
 
     ABase();
 
-    // ÎäÆ÷¾²Ì¬Íø¸ñÌå
+    // æ­¦å™¨é™æ€ç½‘æ ¼ä½“
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     TObjectPtr<class UStaticMeshComponent> WeaponMesh;
 
-    // ×î´óÑªÁ¿ (¿ÉÒÔÔÚÀ¶Í¼ÀïÅä£¬±ÈÈçBossÑªºñÒ»µã)
+    // æœ€å¤§è¡€é‡ 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attributes")
     float MaxHealth;
 
-    // µ±Ç°ÑªÁ¿ (Í¨³£Ö»¶Á£¬¿´µ÷ÊÔÓÃ)
+    // å½“å‰è¡€é‡ 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Attributes")
     float CurrentHealth;
 
-    // ÖÎÁÆº¯Êı (¼ÓÑª)
+    // æ²»ç–—å‡½æ•° 
     UFUNCTION(BlueprintCallable, Category = "Attributes")
     void Treat(float HealAmount);
 
-    // ÖØĞ´ÒıÇæ×Ô´øµÄ¡°ÊÜÉË¡±º¯Êı
-    // Ö»ÒªÓĞÈÎºÎ¶«Î÷¶ÔÕâ¸ö½ÇÉ«Ôì³ÉÉËº¦£¬¾Í»á×Ô¶¯´¥·¢Õâ¸öº¯Êı
+    // å¼€å¯æ­¦å™¨ä¼¤å®³ç¢°æ’
+    UFUNCTION(BlueprintCallable, Category = "Combat")
+    void EnableWeaponDamage();
+
+    // å…³é—­æ­¦å™¨ä¼¤å®³ç¢°æ’
+    UFUNCTION(BlueprintCallable, Category = "Combat")
+    void DisableWeaponDamage();
+
+	// æ­¦å™¨ç¢°æ’äº‹ä»¶å¤„ç†å‡½æ•°
+	//@param OverlappedComponent - å‘ç”Ÿé‡å çš„ç»„ä»¶ï¼ˆé€šå¸¸æ˜¯æ­¦å™¨ï¼‰
+	//@param OtherActor - å¦ä¸€ä¸ªå‚ä¸é‡å çš„Actorï¼ˆå¯èƒ½æ˜¯æ•Œäººï¼‰
+	//@param OtherComp - å¦ä¸€ä¸ªå‚ä¸é‡å çš„ç»„ä»¶ï¼ˆæ•Œäººçš„ç¢°æ’ä½“ï¼‰
+	//@param OtherBodyIndex - å¦ä¸€ä¸ªç»„ä»¶çš„ç‰©ç†èº«ä½“ç´¢å¼•ï¼ˆé€šå¸¸ä¸é‡è¦ï¼‰
+	//@param bFromSweep - æ˜¯å¦æ˜¯ä»Sweepï¼ˆç§»åŠ¨ï¼‰å¼•èµ·çš„é‡å 
+	//@param SweepResult - åŒ…å«é‡å è¯¦ç»†ä¿¡æ¯çš„ç»“æ„ä½“ï¼ˆæ¯”å¦‚ç¢°æ’ç‚¹ã€æ³•çº¿ç­‰ï¼‰
+    UFUNCTION()
+    void OnWeaponOverlap(
+        UPrimitiveComponent* OverlappedComponent,
+        AActor* OtherActor,
+        UPrimitiveComponent* OtherComp,
+        int32 OtherBodyIndex,
+        bool bFromSweep,
+        const FHitResult& SweepResult);
+
+    // å—ä¼¤é€»è¾‘
     virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
 
 protected:
     virtual void BeginPlay() override;
 
+    // æœ¬æ¬¡æ”»å‡»å·²ç»å‘½ä¸­è¿‡çš„è§’è‰²
+    UPROPERTY()
+    TSet<TObjectPtr<AActor>> HitActors;
+
+    bool bWeaponDamageEnabled = false;
 };
