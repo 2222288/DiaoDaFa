@@ -136,6 +136,20 @@ void AHostile::Attack()
 		AnimInstance->Montage_Play(AttackData->AttackMontage);
 		AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
 	}
+	//////
+	CurrentAttackDamage = AttackData->Damage;
+	CurrentHostileAttackDirection = AttackData->AttackDirection;
+	CurrentHostileAttackType = AttackData->AttackID;
+	CurrentHostileAttackStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
+	NotifyWeaponAttackStarted(
+		CurrentHostileAttackDirection,
+		CurrentHostileAttackType,
+		CurrentHostileAttackStartTime,
+		AttackData->Damage,
+		1.0f
+	);
+	///////
 	UE_LOG(LogTemp, Warning, TEXT("敌人发起攻击: Section=%s, Damage=%f"), *AttackData->MontageSection.ToString(), CurrentAttackDamage);
 }
 

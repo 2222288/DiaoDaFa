@@ -84,6 +84,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Damage")
 	void DisableWeaponDamage();
 
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
+	void EnableWeaponTrace();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
+	void DisableWeaponTrace();
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Damage")
+	float GetCurrentBaseDamage() const { return CurrentBaseDamage; }
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Damage")
+	FName GetCurrentAttackType() const { return CurrentAttackType; }
+
+	bool bWeaponTraceWindowOpen = false;
+	FName CurrentAttackType = NAME_None;
+
 	// 是否按住攻击键
 	bool bIsAttackKeyDown = false;
 private:

@@ -208,7 +208,29 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	if (AttackRow->MontageSection != NAME_None)
 	{
 		Anim->Montage_JumpToSection(AttackRow->MontageSection, AttackRow->AttackMontage);
+		//////////
+		CurrentBaseDamage = AttackRow->Damage;
+		CurrentDamageModifier = NextAttackDamageModifier;
+		NextAttackDamageModifier = TrackScore;
+		CurrentWindowTime = AttackRow->WindowTime;
+		CurrentAttackStartTime = CurrentTime;
+		CurrentAttackEndTime = CurrentAttackStartTime + PlayedLength;
+		CurrentDirection = Direction;
+		CurrentAttackType = AttackRow->AttackID;
+		AttackTriggerCounter++;
+		bWeaponTraceWindowOpen = false;
 
+		if (ABase* OwnerCharacter = Cast<ABase>(GetOwner()))
+		{
+			OwnerCharacter->NotifyWeaponAttackStarted(
+				Direction,
+				CurrentAttackType,
+				CurrentAttackStartTime,
+				CurrentBaseDamage,
+				CurrentDamageModifier
+			);
+		}
+		////////
 		const int32 SectionIndex = AttackRow->AttackMontage->GetSectionIndex(AttackRow->MontageSection);
 		if (SectionIndex != INDEX_NONE)
 		{
@@ -442,4 +464,28 @@ void UAttackComponent::DisableWeaponDamage()
 	}
 	bWeaponDamageWindowOpen = false;
 	OwnerCharacter->DisableWeaponDamage();
+}
+
+void UAttackComponent::EnableWeaponTrace()
+{
+	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
+	if (!OwnerCharacter)
+	{
+		return;
+	}
+
+	bWeaponTraceWindowOpen = true;
+	OwnerCharacter->EnableWeaponTrace();
+}
+
+void UAttackComponent::DisableWeaponTrace()
+{
+	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
+	if (!OwnerCharacter)
+	{
+		return;
+	}
+
+	bWeaponTraceWindowOpen = false;
+	OwnerCharacter->DisableWeaponTrace();
 }

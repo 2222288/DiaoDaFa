@@ -40,7 +40,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", DisplayName = "鼠标灵敏度")
     float CursorSensitivity = 1.0f;
 
-	//锁定组件
+    //锁定组件
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
     TObjectPtr<class ULockOn> Lock;
 
@@ -66,8 +66,8 @@ public:
 
 
     //////////////////////////////////////////////////////////////////////
-	//是否正在攻击
-	bool ifAttack = false;
+    //是否正在攻击
+    bool ifAttack = false;
 
 
 public:
