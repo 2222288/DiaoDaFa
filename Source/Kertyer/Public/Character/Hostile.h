@@ -59,6 +59,16 @@ protected:
 	bool bCanAttack = true;
 	//是否正在攻击
 	bool bIsAttacking = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	EAttackDirection CurrentHostileAttackDirection = EAttackDirection::None;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	FName CurrentHostileAttackType = NAME_None;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	float CurrentHostileAttackStartTime = 0.0f;
+
 	//当前攻击伤害
 	float CurrentAttackDamage = 0.0f;
 	//攻击开始后多久进入伤害窗口
