@@ -155,7 +155,7 @@ void AHostile::Attack()
 
 void AHostile::FinishAttack()
 {
-	DisableWeaponDamage();
+	DisableWeaponTrace();
 	bIsAttacking = false;
 	bCanAttack = true; 
 	UE_LOG(LogTemp, Warning, TEXT("敌人攻击动作结束"));

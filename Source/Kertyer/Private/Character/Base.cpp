@@ -15,15 +15,6 @@ ABase::ABase()
 {
     PrimaryActorTick.bCanEverTick = true;
 
-    WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
-    WeaponMesh->SetupAttachment(GetMesh(), FName("hand_r_weapons"));
-    WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    WeaponMesh->SetGenerateOverlapEvents(true);
-    WeaponMesh->SetCollisionObjectType(ECC_WorldDynamic);
-    WeaponMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
-    WeaponMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-    WeaponMesh->OnComponentBeginOverlap.AddDynamic(this, &ABase::OnWeaponOverlap);
-
     MaxHealth = 100.0f;
     CurrentHealth = MaxHealth;
 }
@@ -118,21 +109,6 @@ void ABase::EnableWeaponTrace()
     if (CurrentWeapon)
     {
         CurrentWeapon->EnableWeaponTrace();
-        return;
-    }
-
-    HitActors.Empty();
-    bWeaponDamageEnabled = true;
-
-    if (WeaponMesh)
-    {
-        WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-        WeaponMesh->SetGenerateOverlapEvents(true);
-        WeaponMesh->SetCollisionObjectType(ECC_WorldDynamic);
-        WeaponMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
-        WeaponMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
-        WeaponMesh->SetSimulatePhysics(false);
-        WeaponMesh->SetEnableGravity(false);
     }
 }
 
@@ -141,78 +117,5 @@ void ABase::DisableWeaponTrace()
     if (CurrentWeapon)
     {
         CurrentWeapon->DisableWeaponTrace();
-        return;
     }
-
-    bWeaponDamageEnabled = false;
-
-    if (WeaponMesh)
-    {
-        WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        WeaponMesh->SetGenerateOverlapEvents(false);
-    }
-
-    HitActors.Empty();
-}
-
-void ABase::EnableWeaponDamage()
-{
-    EnableWeaponTrace();
-}
-
-void ABase::DisableWeaponDamage()
-{
-    DisableWeaponTrace();
-}
-
-void ABase::OnWeaponOverlap(
-    UPrimitiveComponent* OverlappedComponent,
-    AActor* OtherActor,
-    UPrimitiveComponent* OtherComp,
-    int32 OtherBodyIndex,
-    bool bFromSweep,
-    const FHitResult& SweepResult)
-{
-    if (CurrentWeapon || !bWeaponDamageEnabled)
-    {
-        return;
-    }
-
-    if (!OtherActor || OtherActor == this)
-    {
-        return;
-    }
-
-    ABase* HitCharacter = Cast<ABase>(OtherActor);
-    if (!HitCharacter)
-    {
-        return;
-    }
-
-    if (HitActors.Contains(OtherActor))
-    {
-        return;
-    }
-
-    HitActors.Add(OtherActor);
-
-    float FinalDamage = 10.0f;
-    if (UAttackComponent* AttackComp = FindComponentByClass<UAttackComponent>())
-    {
-        FinalDamage = AttackComp->GetCurrentAttackDamage();
-    }
-    else if (AHostile* HostileAttacker = Cast<AHostile>(this))
-    {
-        FinalDamage = HostileAttacker->GetCurrentAttackDamage();
-    }
-
-    UGameplayStatics::ApplyDamage(
-        HitCharacter,
-        FinalDamage,
-        GetController(),
-        this,
-        UDamageType::StaticClass()
-    );
-
-    UE_LOG(LogTemp, Warning, TEXT("Legacy weapon hit %s, Damage: %f"), *HitCharacter->GetName(), FinalDamage);
 }

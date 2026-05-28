@@ -76,14 +76,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Damage")
 	float GetCurrentAttackDamage() const;
 
-	// 开启武器伤害碰撞
-	UFUNCTION(BlueprintCallable, Category = "Combat|Damage")
-	void EnableWeaponDamage();
-
-	// 关闭武器伤害碰撞
-	UFUNCTION(BlueprintCallable, Category = "Combat|Damage")
-	void DisableWeaponDamage();
-
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
 	void EnableWeaponTrace();
 
@@ -133,8 +125,6 @@ private:
 	EAttackDirection CurrentDirection = EAttackDirection::None;
 	// 当前攻击状态
 	EAttackState AttackState = EAttackState::Idle;
-	// 武器伤害窗口是否已开启
-	bool bWeaponDamageWindowOpen = false;
 	// 是否有待定攻击
 	bool bHasPendingAttack = false;
 	// 待定攻击方向

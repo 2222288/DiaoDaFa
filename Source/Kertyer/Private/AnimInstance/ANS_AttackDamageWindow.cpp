@@ -26,7 +26,7 @@ void UANS_AttackDamageWindow::NotifyBegin(
 		return;
 	}
 
-	AttackComp->EnableWeaponDamage();
+	AttackComp->EnableWeaponTrace();
 
 	UE_LOG(LogTemp, Warning, TEXT("攻击有效帧开始：开启武器伤害碰撞"));
 }
@@ -52,7 +52,7 @@ void UANS_AttackDamageWindow::NotifyEnd(
 		return;
 	}
 
-	AttackComp->DisableWeaponDamage();
+	AttackComp->DisableWeaponTrace();
 
 	UE_LOG(LogTemp, Warning, TEXT("攻击有效帧结束：关闭武器伤害碰撞"));
 }

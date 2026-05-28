@@ -56,9 +56,9 @@ void UAttackComponent::TickComponent(
 	const bool bAttackActive = HasActiveAttack(CurrentTime);
 
 
-	if (!bAttackActive && bWeaponDamageWindowOpen)
+	if (!bAttackActive && bWeaponTraceWindowOpen)
 	{
-		DisableWeaponDamage();
+		DisableWeaponTrace();
 	}
 
 	if (!bAttackActive && !bHasPendingAttack)
@@ -251,7 +251,7 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	AttackTriggerCounter++;
 
 	//重置
-	EnableWeaponDamage();
+	EnableWeaponTrace();
 
 	UE_LOG(LogTemp, Warning, TEXT("本次攻击方向: %d, 轨迹得分: %f, 下一击伤害倍率: %f"),
 		static_cast<int32>(Direction),
@@ -442,28 +442,6 @@ bool UAttackComponent::IsAttackActive() const
 float UAttackComponent::GetCurrentAttackDamage() const
 {
 	return CurrentBaseDamage * CurrentDamageModifier;
-}
-
-void UAttackComponent::EnableWeaponDamage()
-{
-	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
-	if (!OwnerCharacter)
-	{
-		return;
-	}
-	bWeaponDamageWindowOpen = true;
-	OwnerCharacter->EnableWeaponDamage();
-}
-
-void UAttackComponent::DisableWeaponDamage()
-{
-	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
-	if (!OwnerCharacter)
-	{
-		return;
-	}
-	bWeaponDamageWindowOpen = false;
-	OwnerCharacter->DisableWeaponDamage();
 }
 
 void UAttackComponent::EnableWeaponTrace()
