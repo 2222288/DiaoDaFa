@@ -104,6 +104,7 @@ void AWeaponBase::DisableWeaponTrace()
 
 void AWeaponBase::ResetSocketTracePositions()
 {
+
     PreviousSocketLocations.Empty();
 
     if (!WeaponMesh)
@@ -219,6 +220,11 @@ void AWeaponBase::ProcessSweepHit(const FHitResult& Hit)
 
 void AWeaponBase::HandleBodyHit(ABase* HitBody, const FHitResult& Hit)
 {
+    if (!bIsTracing) {
+        return;
+    }
+
+
     if (!HitBody || HitBody == CurrentHolder || HitActorsThisTrace.Contains(HitBody))
     {
         return;

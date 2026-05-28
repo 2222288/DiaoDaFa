@@ -29,12 +29,6 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
     void NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier);
 
-    //UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
-    //void OpenWeaponContactWindow() { EnableWeaponTrace(); }
-
-    //UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
-    //void CloseWeaponContactWindow() { DisableWeaponTrace(); }
-
     UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
     void EnableWeaponTrace();
 

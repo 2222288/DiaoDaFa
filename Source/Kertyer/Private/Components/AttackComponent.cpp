@@ -250,8 +250,6 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	CurrentDirection = Direction;
 	AttackTriggerCounter++;
 
-	//重置
-	EnableWeaponTrace();
 
 	UE_LOG(LogTemp, Warning, TEXT("本次攻击方向: %d, 轨迹得分: %f, 下一击伤害倍率: %f"),
 		static_cast<int32>(Direction),
