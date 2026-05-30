@@ -1,4 +1,4 @@
-#include "Weapon/WeaponContactResolver.h"
+﻿#include "Weapon/WeaponContactResolver.h"
 #include "Weapon/WeaponBase.h"
 
 EWeaponContactResult UWeaponContactResolver::ResolveWeaponContact(const AWeaponBase* WeaponA, const AWeaponBase* WeaponB)

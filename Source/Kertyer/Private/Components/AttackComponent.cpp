@@ -8,6 +8,51 @@
 #include "Character/Base.h"
 #include "GameFramework/Character.h"
 
+namespace
+{
+	const TCHAR* AttackDirectionToChinese(EAttackDirection Direction)
+	{
+		switch (Direction)
+		{
+		case EAttackDirection::None: return TEXT("无");
+		case EAttackDirection::Up: return TEXT("上");
+		case EAttackDirection::UpRight: return TEXT("右上");
+		case EAttackDirection::Right: return TEXT("右");
+		case EAttackDirection::DownRight: return TEXT("右下");
+		case EAttackDirection::Down: return TEXT("下");
+		case EAttackDirection::DownLeft: return TEXT("左下");
+		case EAttackDirection::Left: return TEXT("左");
+		case EAttackDirection::UpLeft: return TEXT("左上");
+		default: return TEXT("未知方向");
+		}
+	}
+
+	const TCHAR* AttackStateToChinese(EAttackState State)
+	{
+		switch (State)
+		{
+		case EAttackState::Idle: return TEXT("空闲");
+		case EAttackState::Sampling: return TEXT("采样中");
+		case EAttackState::AttackingLocked: return TEXT("攻击锁定");
+		case EAttackState::ComboWindowOpen: return TEXT("连击窗口打开");
+		case EAttackState::SamplingLocked: return TEXT("采样但攻击锁定");
+		case EAttackState::SamplingComboWindow: return TEXT("采样且连击窗口打开");
+		default: return TEXT("未知状态");
+		}
+	}
+
+	FString SafeActorName(const AActor* Actor)
+	{
+		return IsValid(Actor) ? Actor->GetName() : TEXT("无");
+	}
+
+	FString SafeNameText(FName Name)
+	{
+		return Name.IsNone() ? FString(TEXT("无")) : Name.ToString();
+	}
+}
+
+
 UAttackComponent::UAttackComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -146,39 +191,53 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 {
 	if (Direction == EAttackDirection::None)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][出招失败] 原因=方向为空 攻击者=%s"),
+			*SafeActorName(GetOwner()));
 		return;
 	}
 
 	UWorld* World = GetWorld();
 	if (!World)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][出招失败] 原因=World无效 攻击者=%s 方向=%s"),
+			*SafeActorName(GetOwner()),
+			AttackDirectionToChinese(Direction));
 		return;
 	}
 
-	// 该帧时间
 	const float CurrentTime = World->GetTimeSeconds();
 	RefreshAttackState(CurrentTime);
 
-	// 锁定期内的同向输入直接丢弃
+	// 锁定期内的同向输入直接丢弃，保持原逻辑。
 	if (IsLockedState() && Direction == CurrentDirection)
 	{
 		ClearSamplingBuffer();
+
+		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][输入丢弃] 原因=锁定期同方向重复输入 攻击者=%s 当前方向=%s 输入方向=%s 当前状态=%s"),
+			*SafeActorName(GetOwner()),
+			AttackDirectionToChinese(CurrentDirection),
+			AttackDirectionToChinese(Direction),
+			AttackStateToChinese(AttackState));
+
 		return;
 	}
 
-	// 锁定期内的异向输入进入待定队列
+	// 锁定期内的异向输入进入待定队列，保持原逻辑。
 	if (IsLockedState())
 	{
 		bHasPendingAttack = true;
 		PendingDirection = Direction;
 		PendingTrackScore = TrackScore;
 
-		// 当前这段输入已经消费，后续轨迹必须重新积
 		ClearSamplingBuffer();
 
-		UE_LOG(LogTemp, Warning, TEXT("记录待定方向: %d, 待定评分: %f"),
-			static_cast<int32>(Direction),
-			TrackScore);
+		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][记录待定攻击] 攻击者=%s 当前方向=%s 待定方向=%s 待定评分=%.3f 当前状态=%s 当前攻击结束时间=%.3f"),
+			*SafeActorName(GetOwner()),
+			AttackDirectionToChinese(CurrentDirection),
+			AttackDirectionToChinese(PendingDirection),
+			PendingTrackScore,
+			AttackStateToChinese(AttackState),
+			CurrentAttackEndTime);
 
 		return;
 	}
@@ -186,51 +245,37 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	const FAttack* AttackRow = FindAttackRowByDirection(Direction);
 	if (!AttackRow || !AttackRow->AttackMontage)
 	{
-		UE_LOG(LogTemp, Error, TEXT("攻击失败：没有找到方向对应的 AttackRow, Direction=%d"),
-			static_cast<int32>(Direction));
-
+		UE_LOG(LogTemp, Error, TEXT("[攻击交互][出招失败] 原因=没有找到方向对应的AttackRow或Montage为空 攻击者=%s 方向=%s TrackScore=%.3f"),
+			*SafeActorName(GetOwner()),
+			AttackDirectionToChinese(Direction),
+			TrackScore);
 		return;
 	}
 
 	if (!CacheAnimInstance() || !Anim)
 	{
+		UE_LOG(LogTemp, Error, TEXT("[攻击交互][出招失败] 原因=AnimInstance无效 攻击者=%s 方向=%s 攻击ID=%s"),
+			*SafeActorName(GetOwner()),
+			AttackDirectionToChinese(Direction),
+			*SafeNameText(AttackRow->AttackID));
 		return;
 	}
 
 	float PlayedLength = Anim->Montage_Play(AttackRow->AttackMontage, 1.0f);
-
 	if (PlayedLength <= 0.0f)
 	{
-		UE_LOG(LogTemp, Error, TEXT("攻击失败：Montage 播放失败"));
+		UE_LOG(LogTemp, Error, TEXT("[攻击交互][出招失败] 原因=Montage播放失败 攻击者=%s 方向=%s 攻击ID=%s Montage=%s"),
+			*SafeActorName(GetOwner()),
+			AttackDirectionToChinese(Direction),
+			*SafeNameText(AttackRow->AttackID),
+			*GetNameSafe(AttackRow->AttackMontage));
 		return;
 	}
 
 	if (AttackRow->MontageSection != NAME_None)
 	{
 		Anim->Montage_JumpToSection(AttackRow->MontageSection, AttackRow->AttackMontage);
-		//////////
-		CurrentBaseDamage = AttackRow->Damage;
-		CurrentDamageModifier = NextAttackDamageModifier;
-		NextAttackDamageModifier = TrackScore;
-		CurrentWindowTime = AttackRow->WindowTime;
-		CurrentAttackStartTime = CurrentTime;
-		CurrentAttackEndTime = CurrentAttackStartTime + PlayedLength;
-		CurrentDirection = Direction;
-		CurrentAttackType = AttackRow->AttackID;
-		AttackTriggerCounter++;
-		bWeaponTraceWindowOpen = false;
 
-		if (ABase* OwnerCharacter = Cast<ABase>(GetOwner()))
-		{
-			OwnerCharacter->NotifyWeaponAttackStarted(
-				Direction,
-				CurrentAttackType,
-				CurrentAttackStartTime,
-				CurrentBaseDamage,
-				CurrentDamageModifier
-			);
-		}
-		////////
 		const int32 SectionIndex = AttackRow->AttackMontage->GetSectionIndex(AttackRow->MontageSection);
 		if (SectionIndex != INDEX_NONE)
 		{
@@ -238,23 +283,46 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		}
 	}
 
-
-	// 动画确认成功后再更新伤害和时间线
+	// 动画确认成功后，统一更新攻击数据。这里避免原代码在 Section 分支内外重复赋值、重复 AttackTriggerCounter++。
 	CurrentBaseDamage = AttackRow->Damage;
 	CurrentDamageModifier = NextAttackDamageModifier;
 	NextAttackDamageModifier = TrackScore;
-
 	CurrentWindowTime = AttackRow->WindowTime;
 	CurrentAttackStartTime = CurrentTime;
 	CurrentAttackEndTime = CurrentAttackStartTime + PlayedLength;
 	CurrentDirection = Direction;
+	CurrentAttackType = AttackRow->AttackID;
+	bWeaponTraceWindowOpen = false;
 	AttackTriggerCounter++;
 
+	if (ABase* OwnerCharacter = Cast<ABase>(GetOwner()))
+	{
+		OwnerCharacter->NotifyWeaponAttackStarted(
+			Direction,
+			CurrentAttackType,
+			CurrentAttackStartTime,
+			CurrentBaseDamage,
+			CurrentDamageModifier
+		);
+	}
 
-	UE_LOG(LogTemp, Warning, TEXT("本次攻击方向: %d, 轨迹得分: %f, 下一击伤害倍率: %f"),
-		static_cast<int32>(Direction),
+	UE_LOG(LogTemp, Warning,
+		TEXT("[攻击交互][出招成功] 攻击者=%s 方向=%s 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 当前倍率=%.3f 本击最终伤害=%.2f 下击倍率=%.3f 轨迹评分=%.3f 攻击开始=%.3f 攻击结束=%.3f 连击窗口=%.3f 触发计数=%d 状态=%s"),
+		*SafeActorName(GetOwner()),
+		AttackDirectionToChinese(Direction),
+		*SafeNameText(CurrentAttackType),
+		*GetNameSafe(AttackRow->AttackMontage),
+		*SafeNameText(AttackRow->MontageSection),
+		CurrentBaseDamage,
+		CurrentDamageModifier,
+		GetCurrentAttackDamage(),
+		NextAttackDamageModifier,
 		TrackScore,
-		NextAttackDamageModifier);
+		CurrentAttackStartTime,
+		CurrentAttackEndTime,
+		CurrentWindowTime,
+		AttackTriggerCounter,
+		AttackStateToChinese(AttackState));
 
 	ClearPendingAttack();
 	ClearSamplingBuffer();

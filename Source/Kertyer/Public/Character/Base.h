@@ -9,54 +9,67 @@
 
 class AWeaponBase;
 
+/**
+ * 基础角色类：
+ * 负责武器持有、攻击数据下发、武器判定开关和生命值扣减。
+ */
 UCLASS()
 class KERTYER_API ABase : public ACharacter
 {
-    GENERATED_BODY()
+	GENERATED_BODY()
 
 public:
-    ABase();
+	/** 构造函数：初始化基础生命值。 */
+	ABase();
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon")
-    FName WeaponAttachSocketName = TEXT("hand_r_weapons");
+	/** 武器挂载到角色骨骼上的 Socket 名称。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon", meta = (DisplayName = "武器挂载Socket名称"))
+	FName WeaponAttachSocketName = TEXT("hand_r_weapons");
 
-    UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
-    void SetCurrentWeapon(AWeaponBase* NewWeapon);
+	/** 设置当前武器，并把武器挂载到角色身上。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "设置当前武器"))
+	void SetCurrentWeapon(AWeaponBase* NewWeapon);
 
-    UFUNCTION(BlueprintPure, Category = "Combat|Weapon")
-    AWeaponBase* GetCurrentWeapon() const { return CurrentWeapon; }
+	/** 获取当前武器。 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Weapon", meta = (DisplayName = "获取当前武器"))
+	AWeaponBase* GetCurrentWeapon() const { return CurrentWeapon; }
 
-    UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
-    void NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier);
+	/** 通知当前武器一次攻击已经开始，并把攻击数据下发给武器。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "通知武器攻击开始"))
+	void NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier);
 
-    UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
-    void EnableWeaponTrace();
+	/** 打开当前武器的命中判定窗口。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "打开当前武器判定"))
+	void EnableWeaponTrace();
 
-    UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
-    void DisableWeaponTrace();
+	/** 关闭当前武器的命中判定窗口。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "关闭当前武器判定"))
+	void DisableWeaponTrace();
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attributes")
-    float MaxHealth;
+	/** 最大生命值。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attributes", meta = (DisplayName = "最大生命值"))
+	float MaxHealth;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Attributes")
-    float CurrentHealth;
+	/** 当前生命值。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Attributes", meta = (DisplayName = "当前生命值"))
+	float CurrentHealth;
 
-    UFUNCTION(BlueprintCallable, Category = "Attributes")
-    void Treat(float HealAmount);
+	/** 治疗角色。 */
+	UFUNCTION(BlueprintCallable, Category = "Attributes", meta = (DisplayName = "治疗"))
+	void Treat(float HealAmount);
 
-    virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
-
-
+	/** 接收伤害并结算当前生命值。 */
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
 
 protected:
-    virtual void BeginPlay() override;
+	/** 游戏开始时生成或挂载默认武器。 */
+	virtual void BeginPlay() override;
 
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Weapon")
-    TSubclassOf<AWeaponBase> DefaultWeaponClass;
+	/** 默认武器类。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "默认武器类"))
+	TSubclassOf<AWeaponBase> DefaultWeaponClass;
 
-    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Combat|Weapon")
-    TObjectPtr<AWeaponBase> CurrentWeapon;
-
-
-
+	/** 当前持有的武器实例。 */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "当前武器"))
+	TObjectPtr<AWeaponBase> CurrentWeapon;
 };

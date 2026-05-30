@@ -125,18 +125,36 @@ float AHostile::GetMontageSectionLength(UAnimMontage* Montage, FName SectionName
 
 void AHostile::Attack()
 {
-	
-	const FAttack* AttackData = GetRandomAttackData(); 
-	if (!AttackData) return;
-
-	
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && AttackData->AttackMontage)
+	if (!CanAttack())
 	{
-		AnimInstance->Montage_Play(AttackData->AttackMontage);
-		AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
+		return;
 	}
-	//////
+
+	const FAttack* AttackData = GetRandomAttackData();
+	if (!AttackData || !AttackData->AttackMontage)
+	{
+		return;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	if (!AnimInstance)
+	{
+		return;
+	}
+
+	bIsAttacking = true;
+	bCanAttack = false;
+
+	AnimInstance->Montage_Play(AttackData->AttackMontage);
+
+	if (AttackData->MontageSection != NAME_None)
+	{
+		AnimInstance->Montage_JumpToSection(
+			AttackData->MontageSection,
+			AttackData->AttackMontage
+		);
+	}
+
 	CurrentAttackDamage = AttackData->Damage;
 	CurrentHostileAttackDirection = AttackData->AttackDirection;
 	CurrentHostileAttackType = AttackData->AttackID;
@@ -149,8 +167,39 @@ void AHostile::Attack()
 		AttackData->Damage,
 		1.0f
 	);
-	///////
-	UE_LOG(LogTemp, Warning, TEXT("敌人发起攻击: Section=%s, Damage=%f"), *AttackData->MontageSection.ToString(), CurrentAttackDamage);
+
+	float AttackDuration = GetMontageSectionLength(
+		AttackData->AttackMontage,
+		AttackData->MontageSection
+	);
+
+	if (AttackDuration <= 0.0f)
+	{
+		AttackDuration = AttackData->AttackMontage->GetPlayLength();
+	}
+
+	if (AttackDuration <= 0.0f)
+	{
+		AttackDuration = 0.1f;
+	}
+
+	GetWorldTimerManager().ClearTimer(FinishAttackTimer);
+	GetWorldTimerManager().SetTimer(
+		FinishAttackTimer,
+		this,
+		&AHostile::FinishAttack,
+		AttackDuration,
+		false
+	);
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("敌人发起攻击: Section=%s, Damage=%f, Duration=%f"),
+		*AttackData->MontageSection.ToString(),
+		CurrentAttackDamage,
+		AttackDuration
+	);
 }
 
 void AHostile::FinishAttack()

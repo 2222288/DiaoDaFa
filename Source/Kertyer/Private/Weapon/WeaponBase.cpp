@@ -1,4 +1,4 @@
-#include "Weapon/WeaponBase.h"
+﻿#include "Weapon/WeaponBase.h"
 #include "Weapon/WeaponContactResolver.h"
 #include "Character/Base.h"
 #include "Components/BoxComponent.h"
@@ -6,6 +6,62 @@
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
 #include "Kismet/GameplayStatics.h"
+
+namespace
+{
+    const TCHAR* WeaponDirectionToChinese(EAttackDirection Direction)
+    {
+        switch (Direction)
+        {
+        case EAttackDirection::None: return TEXT("无");
+        case EAttackDirection::Up: return TEXT("上");
+        case EAttackDirection::UpRight: return TEXT("右上");
+        case EAttackDirection::Right: return TEXT("右");
+        case EAttackDirection::DownRight: return TEXT("右下");
+        case EAttackDirection::Down: return TEXT("下");
+        case EAttackDirection::DownLeft: return TEXT("左下");
+        case EAttackDirection::Left: return TEXT("左");
+        case EAttackDirection::UpLeft: return TEXT("左上");
+        default: return TEXT("未知方向");
+        }
+    }
+
+    const TCHAR* WeaponStateToChinese(EWeaponState State)
+    {
+        switch (State)
+        {
+        case EWeaponState::Idle: return TEXT("空闲");
+        case EWeaponState::Attacking: return TEXT("攻击中");
+        case EWeaponState::ContactWindowOpen: return TEXT("接触窗口打开");
+        case EWeaponState::Recovering: return TEXT("恢复中");
+        case EWeaponState::Disabled: return TEXT("失效");
+        default: return TEXT("未知状态");
+        }
+    }
+
+    const TCHAR* WeaponContactResultToChinese(EWeaponContactResult Result)
+    {
+        switch (Result)
+        {
+        case EWeaponContactResult::Clash: return TEXT("同时对撞");
+        case EWeaponContactResult::Deflect: return TEXT("偏斜");
+        case EWeaponContactResult::Interrupt: return TEXT("打断");
+        case EWeaponContactResult::Hit: return TEXT("命中");
+        case EWeaponContactResult::Ignore: return TEXT("忽略");
+        default: return TEXT("未知结果");
+        }
+    }
+
+    FString SafeObjectName(const UObject* Object)
+    {
+        return IsValid(Object) ? Object->GetName() : TEXT("无");
+    }
+
+    FString SafeAttackName(FName Name)
+    {
+        return Name.IsNone() ? FString(TEXT("无")) : Name.ToString();
+    }
+}
 
 AWeaponBase::AWeaponBase()
 {
@@ -61,6 +117,7 @@ void AWeaponBase::ReceiveAttackData(const FWeaponAttackData& AttackData)
     CurrentAttackData = AttackData;
     CurrentAttackDirection = AttackData.AttackDirection;
     CurrentWeaponState = EWeaponState::Attacking;
+
     HitActorsThisTrace.Empty();
     ContactedWeaponsThisTrace.Empty();
 
@@ -71,26 +128,55 @@ void AWeaponBase::ReceiveAttackData(const FWeaponAttackData& AttackData)
             CurrentAttackData.AttackStartTime = World->GetTimeSeconds();
         }
     }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][武器接收攻击数据] 持有者=%s 武器=%s 方向=%s 攻击ID=%s 开始时间=%.3f 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 武器状态=%s"),
+        *SafeObjectName(CurrentHolder),
+        *GetName(),
+        WeaponDirectionToChinese(CurrentAttackDirection),
+        *SafeAttackName(CurrentAttackData.AttackType),
+        CurrentAttackData.AttackStartTime,
+        CurrentAttackData.BaseDamage,
+        CurrentAttackData.DamageModifier,
+        GetCurrentAttackDamage(),
+        WeaponStateToChinese(CurrentWeaponState));
 }
 
 void AWeaponBase::EnableWeaponTrace()
 {
     if (!WeaponMesh)
     {
+        UE_LOG(LogTemp, Warning, TEXT("[攻击交互][判定窗口打开失败] 原因=WeaponMesh为空 武器=%s 持有者=%s"),
+            *GetName(),
+            *SafeObjectName(CurrentHolder));
         return;
     }
 
     bIsTracing = true;
     CurrentWeaponState = EWeaponState::ContactWindowOpen;
+
     HitActorsThisTrace.Empty();
     ContactedWeaponsThisTrace.Empty();
+
     ResetSocketTracePositions();
 
-    UE_LOG(LogTemp, Warning, TEXT("WeaponTrace opened: %s, Direction=%d, Damage=%f"), *GetName(), static_cast<int32>(CurrentAttackDirection), GetCurrentAttackDamage());
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][判定窗口打开] 持有者=%s 武器=%s 方向=%s 攻击ID=%s 最终伤害=%.2f Socket数量=%d Trace半径=%.2f 武器状态=%s"),
+        *SafeObjectName(CurrentHolder),
+        *GetName(),
+        WeaponDirectionToChinese(CurrentAttackDirection),
+        *SafeAttackName(CurrentAttackData.AttackType),
+        GetCurrentAttackDamage(),
+        BladeSocketNames.Num(),
+        TraceSphereRadius,
+        WeaponStateToChinese(CurrentWeaponState));
 }
 
 void AWeaponBase::DisableWeaponTrace()
 {
+    const int32 BodyHitCount = HitActorsThisTrace.Num();
+    const int32 WeaponContactCount = ContactedWeaponsThisTrace.Num();
+
     bIsTracing = false;
     PreviousSocketLocations.Empty();
 
@@ -99,7 +185,15 @@ void AWeaponBase::DisableWeaponTrace()
         CurrentWeaponState = EWeaponState::Recovering;
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("WeaponTrace closed: %s"), *GetName());
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][判定窗口关闭] 持有者=%s 武器=%s 方向=%s 攻击ID=%s 本窗口命中身体数=%d 本窗口接触武器数=%d 武器状态=%s"),
+        *SafeObjectName(CurrentHolder),
+        *GetName(),
+        WeaponDirectionToChinese(CurrentAttackDirection),
+        *SafeAttackName(CurrentAttackData.AttackType),
+        BodyHitCount,
+        WeaponContactCount,
+        WeaponStateToChinese(CurrentWeaponState));
 }
 
 void AWeaponBase::ResetSocketTracePositions()
@@ -220,10 +314,10 @@ void AWeaponBase::ProcessSweepHit(const FHitResult& Hit)
 
 void AWeaponBase::HandleBodyHit(ABase* HitBody, const FHitResult& Hit)
 {
-    if (!bIsTracing) {
+    if (!bIsTracing)
+    {
         return;
     }
-
 
     if (!HitBody || HitBody == CurrentHolder || HitActorsThisTrace.Contains(HitBody))
     {
@@ -244,7 +338,23 @@ void AWeaponBase::HandleBodyHit(ABase* HitBody, const FHitResult& Hit)
     );
 
     BP_OnBodyHit(HitBody, Hit, Damage);
-    UE_LOG(LogTemp, Warning, TEXT("Weapon body hit: Weapon=%s, Target=%s, Damage=%f"), *GetName(), *HitBody->GetName(), Damage);
+
+    const UPrimitiveComponent* HitComponent = Hit.GetComponent();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][命中敌方身体] 攻击者=%s 攻击武器=%s 受击者=%s 方向=%s 攻击ID=%s 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 命中组件=%s 命中点=%s 命中法线=%s 本窗口已命中身体数=%d"),
+        *SafeObjectName(CurrentHolder),
+        *GetName(),
+        *SafeObjectName(HitBody),
+        WeaponDirectionToChinese(CurrentAttackDirection),
+        *SafeAttackName(CurrentAttackData.AttackType),
+        CurrentAttackData.BaseDamage,
+        CurrentAttackData.DamageModifier,
+        Damage,
+        *SafeObjectName(HitComponent),
+        *Hit.Location.ToCompactString(),
+        *Hit.ImpactNormal.ToCompactString(),
+        HitActorsThisTrace.Num());
 }
 
 void AWeaponBase::HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hit)
@@ -257,6 +367,7 @@ void AWeaponBase::HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hi
     ContactedWeaponsThisTrace.Add(OtherWeapon);
 
     const EWeaponContactResult Result = UWeaponContactResolver::ResolveWeaponContact(this, OtherWeapon);
+
     ApplyContactResultToWeapons(OtherWeapon, Result);
 
     BP_OnWeaponContact(OtherWeapon, Result, Hit);
@@ -267,7 +378,25 @@ void AWeaponBase::HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hi
         HandleBodyHit(OtherWeapon->CurrentHolder, Hit);
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("Weapon contact: %s vs %s -> %d"), *GetName(), *OtherWeapon->GetName(), static_cast<int32>(Result));
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][武器碰撞] A角色=%s A武器=%s A方向=%s A状态=%s A攻击ID=%s A开始=%.3f A伤害=%.2f | B角色=%s B武器=%s B方向=%s B状态=%s B攻击ID=%s B开始=%.3f B伤害=%.2f | 结果=%s | 命中点=%s | 本窗口武器接触数=%d"),
+        *SafeObjectName(CurrentHolder),
+        *GetName(),
+        WeaponDirectionToChinese(CurrentAttackDirection),
+        WeaponStateToChinese(CurrentWeaponState),
+        *SafeAttackName(CurrentAttackData.AttackType),
+        CurrentAttackData.AttackStartTime,
+        GetCurrentAttackDamage(),
+        *SafeObjectName(OtherWeapon->CurrentHolder),
+        *OtherWeapon->GetName(),
+        WeaponDirectionToChinese(OtherWeapon->CurrentAttackDirection),
+        WeaponStateToChinese(OtherWeapon->CurrentWeaponState),
+        *SafeAttackName(OtherWeapon->CurrentAttackData.AttackType),
+        OtherWeapon->CurrentAttackData.AttackStartTime,
+        OtherWeapon->GetCurrentAttackDamage(),
+        WeaponContactResultToChinese(Result),
+        *Hit.Location.ToCompactString(),
+        ContactedWeaponsThisTrace.Num());
 }
 
 void AWeaponBase::ApplyContactResultToWeapons(AWeaponBase* OtherWeapon, EWeaponContactResult Result)
