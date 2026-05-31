@@ -36,7 +36,7 @@ public:
 
 	/** 通知当前武器一次攻击已经开始，并把攻击数据下发给武器。 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "通知武器攻击开始"))
-	void NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier);
+	void NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier,float CounterAttackValidWindow=0.5);
 
 	/** 打开当前武器的命中判定窗口。 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "打开当前武器判定"))
@@ -46,12 +46,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "关闭当前武器判定"))
 	void DisableWeaponTrace();
 
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "身体被命中后打断当前攻击"))
+	void InterruptCurrentAttackByBodyHit(AActor* DamageCauser);
+
 	/** 最大生命值。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attributes", meta = (DisplayName = "最大生命值"))
 	float MaxHealth;
 
 	/** 当前生命值。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Attributes", meta = (DisplayName = "当前生命值"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attributes", meta = (DisplayName = "当前生命值"))
 	float CurrentHealth;
 
 	/** 治疗角色。 */
@@ -73,3 +76,4 @@ protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "当前武器"))
 	TObjectPtr<AWeaponBase> CurrentWeapon;
 };
+

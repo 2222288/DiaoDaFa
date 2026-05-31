@@ -30,10 +30,12 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap Properties")
     float Treatmentamount = 20.0f;
 
-	virtual void BeginPlay() override;
-
 private:
+    virtual void BeginPlay() override;
+
+	// 重叠事件处理治疗函数
     UFUNCTION()
     void OnHealOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
+  
  };

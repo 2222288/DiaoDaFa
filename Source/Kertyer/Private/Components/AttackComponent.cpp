@@ -191,38 +191,25 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 {
 	if (Direction == EAttackDirection::None)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][出招失败] 原因=方向为空 攻击者=%s"),
-			*SafeActorName(GetOwner()));
 		return;
 	}
 
 	UWorld* World = GetWorld();
 	if (!World)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][出招失败] 原因=World无效 攻击者=%s 方向=%s"),
-			*SafeActorName(GetOwner()),
-			AttackDirectionToChinese(Direction));
 		return;
 	}
 
 	const float CurrentTime = World->GetTimeSeconds();
 	RefreshAttackState(CurrentTime);
 
-	// 锁定期内的同向输入直接丢弃，保持原逻辑。
 	if (IsLockedState() && Direction == CurrentDirection)
 	{
 		ClearSamplingBuffer();
 
-		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][输入丢弃] 原因=锁定期同方向重复输入 攻击者=%s 当前方向=%s 输入方向=%s 当前状态=%s"),
-			*SafeActorName(GetOwner()),
-			AttackDirectionToChinese(CurrentDirection),
-			AttackDirectionToChinese(Direction),
-			AttackStateToChinese(AttackState));
-
 		return;
 	}
 
-	// 锁定期内的异向输入进入待定队列，保持原逻辑。
 	if (IsLockedState())
 	{
 		bHasPendingAttack = true;
@@ -231,44 +218,38 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 
 		ClearSamplingBuffer();
 
-		UE_LOG(LogTemp, Warning, TEXT("[攻击交互][记录待定攻击] 攻击者=%s 当前方向=%s 待定方向=%s 待定评分=%.3f 当前状态=%s 当前攻击结束时间=%.3f"),
-			*SafeActorName(GetOwner()),
-			AttackDirectionToChinese(CurrentDirection),
-			AttackDirectionToChinese(PendingDirection),
-			PendingTrackScore,
-			AttackStateToChinese(AttackState),
-			CurrentAttackEndTime);
-
 		return;
 	}
 
 	const FAttack* AttackRow = FindAttackRowByDirection(Direction);
 	if (!AttackRow || !AttackRow->AttackMontage)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[攻击交互][出招失败] 原因=没有找到方向对应的AttackRow或Montage为空 攻击者=%s 方向=%s TrackScore=%.3f"),
-			*SafeActorName(GetOwner()),
-			AttackDirectionToChinese(Direction),
-			TrackScore);
+		UE_LOG(LogTemp, Error,
+			TEXT("[攻击交互][出招失败] 原因=未找到AttackRow或Montage为空 角色=%s 方向=%d"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+			static_cast<int32>(Direction));
+
 		return;
 	}
 
 	if (!CacheAnimInstance() || !Anim)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[攻击交互][出招失败] 原因=AnimInstance无效 攻击者=%s 方向=%s 攻击ID=%s"),
-			*SafeActorName(GetOwner()),
-			AttackDirectionToChinese(Direction),
-			*SafeNameText(AttackRow->AttackID));
+		UE_LOG(LogTemp, Error,
+			TEXT("[攻击交互][出招失败] 原因=AnimInstance为空 角色=%s"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("无"));
+
 		return;
 	}
 
 	float PlayedLength = Anim->Montage_Play(AttackRow->AttackMontage, 1.0f);
+
 	if (PlayedLength <= 0.0f)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[攻击交互][出招失败] 原因=Montage播放失败 攻击者=%s 方向=%s 攻击ID=%s Montage=%s"),
-			*SafeActorName(GetOwner()),
-			AttackDirectionToChinese(Direction),
-			*SafeNameText(AttackRow->AttackID),
+		UE_LOG(LogTemp, Error,
+			TEXT("[攻击交互][出招失败] 原因=Montage播放失败 角色=%s Montage=%s"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
 			*GetNameSafe(AttackRow->AttackMontage));
+
 		return;
 	}
 
@@ -283,7 +264,6 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		}
 	}
 
-	// 动画确认成功后，统一更新攻击数据。这里避免原代码在 Section 分支内外重复赋值、重复 AttackTriggerCounter++。
 	CurrentBaseDamage = AttackRow->Damage;
 	CurrentDamageModifier = NextAttackDamageModifier;
 	NextAttackDamageModifier = TrackScore;
@@ -302,27 +282,25 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 			CurrentAttackType,
 			CurrentAttackStartTime,
 			CurrentBaseDamage,
-			CurrentDamageModifier
+			CurrentDamageModifier,
+			CounterAttackValidWindow
 		);
 	}
 
 	UE_LOG(LogTemp, Warning,
-		TEXT("[攻击交互][出招成功] 攻击者=%s 方向=%s 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 当前倍率=%.3f 本击最终伤害=%.2f 下击倍率=%.3f 轨迹评分=%.3f 攻击开始=%.3f 攻击结束=%.3f 连击窗口=%.3f 触发计数=%d 状态=%s"),
-		*SafeActorName(GetOwner()),
-		AttackDirectionToChinese(Direction),
-		*SafeNameText(CurrentAttackType),
+		TEXT("[攻击交互][出招成功] 角色=%s 方向=%d 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 攻击开始=%.3f 攻击时长=%.3f 响应窗口=%.3f 触发计数=%d"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+		static_cast<int32>(Direction),
+		*CurrentAttackType.ToString(),
 		*GetNameSafe(AttackRow->AttackMontage),
-		*SafeNameText(AttackRow->MontageSection),
+		*AttackRow->MontageSection.ToString(),
 		CurrentBaseDamage,
 		CurrentDamageModifier,
 		GetCurrentAttackDamage(),
-		NextAttackDamageModifier,
-		TrackScore,
 		CurrentAttackStartTime,
-		CurrentAttackEndTime,
-		CurrentWindowTime,
-		AttackTriggerCounter,
-		AttackStateToChinese(AttackState));
+		PlayedLength,
+		CounterAttackValidWindow,
+		AttackTriggerCounter);
 
 	ClearPendingAttack();
 	ClearSamplingBuffer();
@@ -532,4 +510,30 @@ void UAttackComponent::DisableWeaponTrace()
 
 	bWeaponTraceWindowOpen = false;
 	OwnerCharacter->DisableWeaponTrace();
+}
+
+void UAttackComponent::InterruptCurrentAttack()
+{
+	if (CacheAnimInstance() && Anim)
+	{
+		Anim->Montage_Stop(0.10f);
+	}
+
+	CurrentAttackStartTime = -1.0f;
+	CurrentAttackEndTime = -1.0f;
+	CurrentWindowTime = 0.0f;
+	CurrentDirection = EAttackDirection::None;
+	CurrentAttackType = NAME_None;
+	CurrentBaseDamage = 0.0f;
+	bWeaponTraceWindowOpen = false;
+
+	ClearPendingAttack();
+	ClearSamplingBuffer();
+
+	AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[攻击交互][攻击组件被打断] 角色=%s 新状态=%d"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+		static_cast<int32>(AttackState));
 }

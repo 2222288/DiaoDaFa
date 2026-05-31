@@ -85,17 +85,13 @@ void ABase::SetCurrentWeapon(AWeaponBase* NewWeapon)
     );
 }
 
-void ABase::NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier)
+void ABase::NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName AttackType, float AttackStartTime, float BaseDamage, float DamageModifier, float CounterAttackValidWindow)
 {
     if (!CurrentWeapon)
     {
         UE_LOG(LogTemp, Warning,
-            TEXT("[攻击交互][武器数据下发失败] 角色=%s 原因=CurrentWeapon为空 方向=%s 攻击ID=%s 基础伤害=%.2f 倍率=%.3f"),
-            *GetName(),
-            BaseAttackDirectionToChinese(AttackDirection),
-            *BaseSafeName(AttackType),
-            BaseDamage,
-            DamageModifier);
+            TEXT("[攻击交互][武器数据下发失败] 角色=%s 原因=CurrentWeapon为空"),
+            *GetName());
         return;
     }
 
@@ -105,21 +101,20 @@ void ABase::NotifyWeaponAttackStarted(EAttackDirection AttackDirection, FName At
     AttackData.AttackType = AttackType;
     AttackData.BaseDamage = BaseDamage;
     AttackData.DamageModifier = DamageModifier;
+    AttackData.CounterAttackValidWindow = CounterAttackValidWindow > 0.0f ? CounterAttackValidWindow : 0.5f;
 
     CurrentWeapon->ReceiveAttackData(AttackData);
 
     UE_LOG(LogTemp, Warning,
-        TEXT("[攻击交互][武器数据下发] 角色=%s 武器=%s 方向=%s 攻击ID=%s 开始时间=%.3f 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f"),
+        TEXT("[攻击交互][武器数据下发] 角色=%s 武器=%s 攻击ID=%s 开始时间=%.3f 基础伤害=%.2f 倍率=%.3f 响应窗口=%.3f"),
         *GetName(),
-        *BaseSafeActorName(CurrentWeapon),
-        BaseAttackDirectionToChinese(AttackDirection),
-        *BaseSafeName(AttackType),
+        *CurrentWeapon->GetName(),
+        *AttackType.ToString(),
         AttackStartTime,
         BaseDamage,
         DamageModifier,
-        FMath::Max(0.0f, BaseDamage * DamageModifier));
+        AttackData.CounterAttackValidWindow);
 }
-
 void ABase::Treat(float Treatmentamount)
 {
     if (Treatmentamount <= 0.0f || CurrentHealth >= MaxHealth)
@@ -128,7 +123,6 @@ void ABase::Treat(float Treatmentamount)
     }
 
     CurrentHealth = FMath::Clamp(CurrentHealth + Treatmentamount, 0.0f, MaxHealth);
-    UE_LOG(LogTemp, Warning, TEXT(">> [治疗] %s 回复了 %f 点生命，当前血量: %f"), *GetName(), Treatmentamount, CurrentHealth);
 }
 
 float ABase::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -188,4 +182,22 @@ void ABase::DisableWeaponTrace()
     {
         CurrentWeapon->DisableWeaponTrace();
     }
+}
+
+void ABase::InterruptCurrentAttackByBodyHit(AActor* DamageCauser)
+{
+    if (CurrentWeapon)
+    {
+        CurrentWeapon->ForceStopWeaponInteraction(TEXT("身体被武器命中，本次攻击被打断"));
+    }
+
+    if (UAttackComponent* AttackComponent = FindComponentByClass<UAttackComponent>())
+    {
+        AttackComponent->InterruptCurrentAttack();
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][角色攻击被打断] 角色=%s 打断来源=%s"),
+        *GetName(),
+        DamageCauser ? *DamageCauser->GetName() : TEXT("无"));
 }

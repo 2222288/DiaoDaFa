@@ -70,6 +70,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Input", meta = (DisplayName = "攻击请求最小间隔"))
 	float AttackRequestCooldown = 0.12f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon", meta = (DisplayName = "攻击响应有效窗口"))
+	float CounterAttackValidWindow = 0.5f;
+
 	/** 获取当前攻击状态。 */
 	UFUNCTION(BlueprintPure, Category = "Combat", meta = (DisplayName = "获取攻击状态"))
 	EAttackState GetAttackState() const { return AttackState; }
@@ -101,6 +104,9 @@ public:
 	/** 关闭当前武器的命中判定窗口。通常由动画通知调用。 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "关闭武器判定窗口"))
 	void DisableWeaponTrace();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Interrupt", meta = (DisplayName = "打断当前攻击"))
+	void InterruptCurrentAttack();
 
 	/** 获取当前攻击基础伤害，来自攻击数据表。 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Damage", meta = (DisplayName = "获取当前攻击基础伤害"))
