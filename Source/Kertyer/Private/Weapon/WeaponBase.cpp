@@ -12,7 +12,7 @@
 
 namespace
 {
-	static constexpr float DefaultCounterAttackWindow = 0.5f;
+	constexpr float DefaultCounterAttackWindow = 0.5f;
 
 	const TCHAR* DirectionToText(EAttackDirection Direction)
 	{
