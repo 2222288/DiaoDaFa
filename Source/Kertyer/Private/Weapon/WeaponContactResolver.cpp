@@ -3,9 +3,9 @@
 
 namespace
 {
-	constexpr float DefaultCounterAttackWindow = 0.5f;
+	static constexpr float DefaultCounterAttackWindow = 0.5f;
 
-	float NormalizeWindow(float Window)
+	static float NormalizeWindow(float Window)
 	{
 		return Window > 0.0f ? Window : DefaultCounterAttackWindow;
 	}

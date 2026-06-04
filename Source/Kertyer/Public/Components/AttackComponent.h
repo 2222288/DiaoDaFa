@@ -1,19 +1,24 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
 #include "Components/ActorComponent.h"
+
 #include "DataAsset/AttackDH.h"
+
 #include "Attackif/Attackif.h"
+
 #include "Attackif/AttackValid.h"
 #include "AttackComponent.generated.h"
 
-class UAnimInstance;
 class UDataTable;
 
 /**
  * 攻击组件：
- * 负责接收鼠标轨迹输入、判断攻击方向、播放攻击动画、维护攻击状态、
+ * 负责接收鼠标轨迹输入、判断攻击方向、维护攻击状态、
  * 并通过角色把本次攻击数据下发给武器。
+ *
+ * 动画播放逻辑已经拆分到 AnimationLogic/AttackAnimationPlayer。
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class KERTYER_API UAttackComponent : public UActorComponent
@@ -126,7 +131,7 @@ public:
 	bool bIsAttackKeyDown = false;
 
 private:
-	/** 执行一次攻击：播放动画、更新伤害数据、下发武器攻击数据。 */
+	/** 执行一次攻击：请求动画播放、更新伤害数据、下发武器攻击数据。 */
 	void PerformAttack(EAttackDirection Direction, float TrackScore);
 
 	/** 根据攻击方向从攻击数据表查找攻击行。 */
@@ -149,9 +154,6 @@ private:
 
 	/** 清理待定攻击数据。 */
 	void ClearPendingAttack();
-
-	/** 缓存拥有者角色的动画实例。 */
-	bool CacheAnimInstance();
 
 	/** 判断当前方向输入是否允许触发攻击请求。 */
 	bool CanAcceptAttackInput(EAttackDirection Direction, float CurrentTime) const;
@@ -189,9 +191,6 @@ private:
 
 	/** 攻击输入有效性判断器。 */
 	FAttackValid AttackValid;
-
-	/** 当前动画实例缓存。 */
-	TObjectPtr<UAnimInstance> Anim = nullptr;
 
 	/** 上一次被接受的攻击输入方向。 */
 	EAttackDirection LastAcceptedInputDirection = EAttackDirection::None;

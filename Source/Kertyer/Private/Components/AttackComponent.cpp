@@ -1,12 +1,10 @@
 #include "Components/AttackComponent.h"
 
-#include "Animation/AnimInstance.h"
-#include "Components/SkeletalMeshComponent.h"
+#include "AnimationLogic/AttackAnimationPlayer.h"
 #include "DataAsset/AttackDH.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "Character/Base.h"
-#include "GameFramework/Character.h"
 
 namespace
 {
@@ -52,7 +50,6 @@ namespace
 	}
 }
 
-
 UAttackComponent::UAttackComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -85,21 +82,16 @@ void UAttackComponent::TickComponent(
 		return;
 	}
 
-	//该帧时间
 	const float CurrentTime = World->GetTimeSeconds();
 
-	//实时监测状态机
 	RefreshAttackState(CurrentTime);
 
-	// 待定攻击处理
 	if (bHasPendingAttack && !IsLockedState())
 	{
 		PerformAttack(PendingDirection, PendingTrackScore);
 	}
 
-	//当前是否正在攻击
 	const bool bAttackActive = HasActiveAttack(CurrentTime);
-
 
 	if (!bAttackActive && bWeaponTraceWindowOpen)
 	{
@@ -116,27 +108,25 @@ void UAttackComponent::BeginAttackSampling(float CurrentTime)
 {
 	RefreshAttackState(CurrentTime);
 
-	// 已经按住了就不重复初始化
 	if (bIsAttackKeyDown)
 	{
 		return;
 	}
 
-	// 锁定期内不允许开始新的采样
 	if (IsLockedState())
 	{
 		return;
 	}
 
-	if (!CacheAnimInstance())
+	if (!FAttackAnimationPlayer::ResolveAnimInstance(GetOwner()))
 	{
 		return;
 	}
 
 	LastAcceptedInputDirection = EAttackDirection::None;
 	LastAcceptedInputTime = -10000.0f;
-
 	bIsAttackKeyDown = true;
+
 	ClearSamplingBuffer();
 	RefreshAttackState(CurrentTime);
 }
@@ -144,7 +134,6 @@ void UAttackComponent::BeginAttackSampling(float CurrentTime)
 void UAttackComponent::EndAttackSampling()
 {
 	bIsAttackKeyDown = false;
-
 	LastAcceptedInputDirection = EAttackDirection::None;
 	LastAcceptedInputTime = -10000.0f;
 
@@ -152,13 +141,12 @@ void UAttackComponent::EndAttackSampling()
 
 	UWorld* World = GetWorld();
 	const float CurrentTime = World ? World->GetTimeSeconds() : 0.0f;
+
 	RefreshAttackState(CurrentTime);
 }
 
 void UAttackComponent::CacheMouseInput(const FVector2D& Input, float CurrentTime)
 {
-	// 只有采样态才接收输入。组件只负责把输入交给 AttackValid，
-	// 不再直接维护 RawPoints、累计坐标或采样窗口。
 	if (!IsSamplingState())
 	{
 		return;
@@ -177,8 +165,6 @@ void UAttackComponent::CacheMouseInput(const FVector2D& Input, float CurrentTime
 
 	if (!CanAcceptAttackInput(Result.Direction, CurrentTime))
 	{
-		// 同方向连续输入或切换过快，直接清掉当前轨迹。
-		// 不清的话，后续点继续叠加，仍可能马上再次识别成功。
 		ClearSamplingBuffer();
 		return;
 	}
@@ -201,12 +187,12 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 	}
 
 	const float CurrentTime = World->GetTimeSeconds();
+
 	RefreshAttackState(CurrentTime);
 
 	if (IsLockedState() && Direction == CurrentDirection)
 	{
 		ClearSamplingBuffer();
-
 		return;
 	}
 
@@ -217,52 +203,43 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		PendingTrackScore = TrackScore;
 
 		ClearSamplingBuffer();
-
 		return;
 	}
 
 	const FAttack* AttackRow = FindAttackRowByDirection(Direction);
 	if (!AttackRow || !AttackRow->AttackMontage)
 	{
-		UE_LOG(LogTemp, Error,
+		UE_LOG(
+			LogTemp,
+			Error,
 			TEXT("[攻击交互][出招失败] 原因=未找到AttackRow或Montage为空 角色=%s 方向=%d"),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
-			static_cast<int32>(Direction));
+			static_cast<int32>(Direction)
+		);
 
 		return;
 	}
 
-	if (!CacheAnimInstance() || !Anim)
+	const FAttackAnimationPlayResult AnimationResult =
+		FAttackAnimationPlayer::PlayAttackMontage(GetOwner(), *AttackRow, 1.0f);
+
+	if (!AnimationResult.bSucceeded)
 	{
-		UE_LOG(LogTemp, Error,
-			TEXT("[攻击交互][出招失败] 原因=AnimInstance为空 角色=%s"),
-			GetOwner() ? *GetOwner()->GetName() : TEXT("无"));
-
-		return;
-	}
-
-	float PlayedLength = Anim->Montage_Play(AttackRow->AttackMontage, 1.0f);
-
-	if (PlayedLength <= 0.0f)
-	{
-		UE_LOG(LogTemp, Error,
-			TEXT("[攻击交互][出招失败] 原因=Montage播放失败 角色=%s Montage=%s"),
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("[攻击交互][出招失败] 原因=%s 角色=%s Montage=%s Section=%s 方向=%d"),
+			*AnimationResult.ErrorMessage,
 			GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
-			*GetNameSafe(AttackRow->AttackMontage));
+			*GetNameSafe(AttackRow->AttackMontage),
+			*AttackRow->MontageSection.ToString(),
+			static_cast<int32>(Direction)
+		);
 
 		return;
 	}
 
-	if (AttackRow->MontageSection != NAME_None)
-	{
-		Anim->Montage_JumpToSection(AttackRow->MontageSection, AttackRow->AttackMontage);
-
-		const int32 SectionIndex = AttackRow->AttackMontage->GetSectionIndex(AttackRow->MontageSection);
-		if (SectionIndex != INDEX_NONE)
-		{
-			PlayedLength = AttackRow->AttackMontage->GetSectionLength(SectionIndex);
-		}
-	}
+	const float PlayedLength = AnimationResult.PlayedLength;
 
 	CurrentBaseDamage = AttackRow->Damage;
 	CurrentDamageModifier = NextAttackDamageModifier;
@@ -287,7 +264,9 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		);
 	}
 
-	UE_LOG(LogTemp, Warning,
+	UE_LOG(
+		LogTemp,
+		Warning,
 		TEXT("[攻击交互][出招成功] 角色=%s 方向=%d 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 攻击开始=%.3f 攻击时长=%.3f 响应窗口=%.3f 触发计数=%d"),
 		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
 		static_cast<int32>(Direction),
@@ -300,7 +279,8 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		CurrentAttackStartTime,
 		PlayedLength,
 		CounterAttackValidWindow,
-		AttackTriggerCounter);
+		AttackTriggerCounter
+	);
 
 	ClearPendingAttack();
 	ClearSamplingBuffer();
@@ -346,7 +326,6 @@ void UAttackComponent::StopBlock()
 
 void UAttackComponent::RefreshAttackState(float CurrentTime)
 {
-	//当前是否存在正在播放的攻击
 	const bool bActiveAttack = HasActiveAttack(CurrentTime);
 
 	if (!bActiveAttack)
@@ -355,18 +334,13 @@ void UAttackComponent::RefreshAttackState(float CurrentTime)
 		CurrentAttackEndTime = -1.f;
 		CurrentWindowTime = 0.0f;
 
-		// 没有活动攻击时，状态只取决于当前是否按住攻击键
 		AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
 		return;
 	}
 
-	//窗口期时间
 	const float Window = FMath::Max(0.1f, CurrentWindowTime);
-	//窗口期结束时间
 	const float WindowStartTime = CurrentAttackStartTime + Window;
-
-	// 是否处于窗口期
-	const bool bWindowOpen = (CurrentTime >= WindowStartTime);
+	const bool bWindowOpen = CurrentTime >= WindowStartTime;
 
 	if (bIsAttackKeyDown)
 	{
@@ -412,24 +386,6 @@ void UAttackComponent::ClearPendingAttack()
 	PendingTrackScore = 0.0f;
 }
 
-bool UAttackComponent::CacheAnimInstance()
-{
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	if (!OwnerCharacter)
-	{
-		return false;
-	}
-
-	USkeletalMeshComponent* OwnerMesh = OwnerCharacter->GetMesh();
-	if (!OwnerMesh)
-	{
-		return false;
-	}
-
-	Anim = OwnerMesh->GetAnimInstance();
-	return Anim != nullptr;
-}
-
 bool UAttackComponent::CanAcceptAttackInput(EAttackDirection Direction, float CurrentTime) const
 {
 	if (Direction == EAttackDirection::None)
@@ -437,7 +393,6 @@ bool UAttackComponent::CanAcceptAttackInput(EAttackDirection Direction, float Cu
 		return false;
 	}
 
-	// 没有历史输入，允许
 	if (LastAcceptedInputDirection == EAttackDirection::None)
 	{
 		return true;
@@ -445,19 +400,16 @@ bool UAttackComponent::CanAcceptAttackInput(EAttackDirection Direction, float Cu
 
 	const float Elapsed = CurrentTime - LastAcceptedInputTime;
 
-	// 同方向连续输入直接忽略
 	if (Direction == LastAcceptedInputDirection)
 	{
 		return false;
 	}
 
-	// 不同方向也必须满足切换间隔
 	if (Elapsed < DirectionSwitchCooldown)
 	{
 		return false;
 	}
 
-	// 额外保护：任意攻击请求之间不能太密
 	if (Elapsed < AttackRequestCooldown)
 	{
 		return false;
@@ -514,10 +466,7 @@ void UAttackComponent::DisableWeaponTrace()
 
 void UAttackComponent::InterruptCurrentAttack()
 {
-	if (CacheAnimInstance() && Anim)
-	{
-		Anim->Montage_Stop(0.10f);
-	}
+	FAttackAnimationPlayer::StopAttackMontage(GetOwner(),nullptr,0.1f);
 
 	CurrentAttackStartTime = -1.0f;
 	CurrentAttackEndTime = -1.0f;
@@ -532,8 +481,11 @@ void UAttackComponent::InterruptCurrentAttack()
 
 	AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
 
-	UE_LOG(LogTemp, Warning,
+	UE_LOG(
+		LogTemp,
+		Warning,
 		TEXT("[攻击交互][攻击组件被打断] 角色=%s 新状态=%d"),
 		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
-		static_cast<int32>(AttackState));
+		static_cast<int32>(AttackState)
+	);
 }

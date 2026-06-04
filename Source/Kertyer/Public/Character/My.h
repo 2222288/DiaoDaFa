@@ -11,7 +11,7 @@
 class UInputMappingContext;
 class UInputAction;
 class ULockOn;
-
+class UUserWidget;
 
 /**
  * */

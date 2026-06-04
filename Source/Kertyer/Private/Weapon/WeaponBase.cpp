@@ -12,7 +12,7 @@
 
 namespace
 {
-	constexpr float DefaultCounterAttackWindow = 0.5f;
+	static constexpr float DefaultCounterAttackWindow = 0.5f;
 
 	const TCHAR* DirectionToText(EAttackDirection Direction)
 	{
@@ -495,8 +495,29 @@ void AWeaponBase::HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hi
 
 	ApplyContactResultToWeapons(OtherWeapon, ResolveOutput.Result);
 
+	if (CurrentHolder)
+	{
+		CurrentHolder->PlayWeaponContactReaction(
+			ResolveOutput,
+			EWeaponContactSide::WeaponA
+		);
+	}
+
+	if (OtherWeapon && OtherWeapon->CurrentHolder)
+	{
+		OtherWeapon->CurrentHolder->PlayWeaponContactReaction(
+			ResolveOutput,
+			EWeaponContactSide::WeaponB
+		);
+	}
+
 	BP_OnWeaponContact(OtherWeapon, ResolveOutput.Result, Hit);
-	OtherWeapon->BP_OnWeaponContact(this, ResolveOutput.Result, Hit);
+
+	if (OtherWeapon)
+	{
+		OtherWeapon->BP_OnWeaponContact(this, ResolveOutput.Result, Hit);
+	}
+
 
 	if (ResolveOutput.bShouldDamageSlowerBody)
 	{

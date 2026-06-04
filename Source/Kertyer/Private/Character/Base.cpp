@@ -8,6 +8,8 @@
 #include "EnhancedInputSubsystems.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/AttackComponent.h"
+#include "AnimationLogic/AttackAnimationPlayer.h"
+#include "DataAsset/CombatReactionAnimationData.h"
 #include "Character/Hostile.h"
 #include "Engine/World.h"
 
@@ -146,6 +148,21 @@ float ABase::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, ACo
 
     CurrentHealth = FMath::Clamp(CurrentHealth - ActualDamage, 0.0f, MaxHealth);
 
+    if (CurrentHealth > 0.0f)
+    {
+        PlayHitReaction();
+    }
+    else
+    {
+        PlayCombatReaction(
+            ECombatReactionType::Death,
+            EWeaponContactResult::Hit,
+            EAttackDirection::None,
+            false,
+            false
+        );
+    }
+
     UE_LOG(LogTemp, Warning,
         TEXT("[攻击交互][扣血结算] 受击者=%s 伤害来源=%s 控制器=%s 输入伤害=%.2f 实际扣血=%.2f 血量=%.2f -> %.2f / %.2f"),
         *GetName(),
@@ -200,4 +217,139 @@ void ABase::InterruptCurrentAttackByBodyHit(AActor* DamageCauser)
         TEXT("[攻击交互][角色攻击被打断] 角色=%s 打断来源=%s"),
         *GetName(),
         DamageCauser ? *DamageCauser->GetName() : TEXT("无"));
+}
+
+bool ABase::PlayCombatReaction(
+    ECombatReactionType ReactionType,
+    EWeaponContactResult ContactResult,
+    EAttackDirection Direction,
+    bool bSelfIsSlower,
+    bool bValidTimedResponse
+)
+{
+    if (!CombatReactionAnimationData)
+    {
+        return false;
+    }
+
+    const FCombatReactionAnimation* ReactionRow =
+        CombatReactionAnimationData->FindBestReaction(
+            ReactionType,
+            ContactResult,
+            Direction,
+            bSelfIsSlower,
+            bValidTimedResponse
+        );
+
+    if (!ReactionRow)
+    {
+        return false;
+    }
+
+    const FAttackAnimationPlayResult Result =
+        FAttackAnimationPlayer::PlayReactionMontage(this, *ReactionRow);
+
+    if (!Result.bSucceeded)
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[战斗反应动画][播放失败] 角色=%s 类型=%d 原因=%s Montage=%s Section=%s"),
+            *GetName(),
+            static_cast<int32>(ReactionType),
+            *Result.ErrorMessage,
+            *GetNameSafe(ReactionRow->Montage),
+            *ReactionRow->MontageSection.ToString()
+        );
+
+        return false;
+    }
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[战斗反应动画][播放成功] 角色=%s 类型=%d Montage=%s Section=%s 时长=%.3f"),
+        *GetName(),
+        static_cast<int32>(ReactionType),
+        *GetNameSafe(Result.PlayedMontage),
+        *Result.PlayedSection.ToString(),
+        Result.PlayedLength
+    );
+
+    return true;
+}
+
+void ABase::PlayWeaponContactReaction(
+    const FWeaponContactResolveOutput& ResolveOutput,
+    EWeaponContactSide SelfSide
+)
+{
+    if (SelfSide == EWeaponContactSide::None)
+    {
+        return;
+    }
+
+    const bool bSelfIsSlower =
+        ResolveOutput.SlowerSide == SelfSide ||
+        ResolveOutput.SlowerSide == EWeaponContactSide::Both;
+
+    ECombatReactionType ReactionType = ECombatReactionType::None;
+
+    switch (ResolveOutput.Result)
+    {
+    case EWeaponContactResult::Clash:
+        // 敌方攻击时间比我早，我方是较慢方，并且仍在有效响应窗口内；
+        // 此时我方播放格挡/架招动画。
+        if (bSelfIsSlower && ResolveOutput.bIsValidTimedResponse)
+        {
+            ReactionType = ECombatReactionType::Guard;
+        }
+        else
+        {
+            ReactionType = ECombatReactionType::Clash;
+        }
+        break;
+
+    case EWeaponContactResult::Deflect:
+        ReactionType = ECombatReactionType::Deflect;
+        break;
+
+    case EWeaponContactResult::Interrupt:
+        ReactionType = ECombatReactionType::Interrupt;
+        break;
+
+    case EWeaponContactResult::Hit:
+        ReactionType = ECombatReactionType::Hit;
+        break;
+
+    case EWeaponContactResult::Ignore:
+    default:
+        return;
+    }
+
+    EAttackDirection ReactionDirection = EAttackDirection::None;
+
+    if (CurrentWeapon)
+    {
+        ReactionDirection = CurrentWeapon->GetCurrentAttackDirection();
+    }
+
+    PlayCombatReaction(
+        ReactionType,
+        ResolveOutput.Result,
+        ReactionDirection,
+        bSelfIsSlower,
+        ResolveOutput.bIsValidTimedResponse
+    );
+}
+
+void ABase::PlayHitReaction()
+{
+    PlayCombatReaction(
+        ECombatReactionType::Hit,
+        EWeaponContactResult::Hit,
+        EAttackDirection::None,
+        false,
+        false
+    );
 }

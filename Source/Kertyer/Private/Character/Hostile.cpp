@@ -1,5 +1,6 @@
 ﻿#include "Character/Hostile.h"
 
+#include "AnimationLogic/AttackAnimationPlayer.h"
 #include "Blueprint/UserWidget.h"
 #include "Widget/EnemyHealthBarWidget.h"
 #include "GameFramework/PlayerController.h"
@@ -7,7 +8,6 @@
 #include "Components/WidgetComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/DataTable.h"
-#include "Animation/AnimInstance.h"
 #include "TimerManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -83,10 +83,9 @@ void AHostile::UpdateHealthBar()
 	}
 }
 
-
 bool AHostile::CanAttack() const
 {
-	// 没在冷却且没在攻击中才能攻击
+	//没在冷却且没在攻击中才能攻击
 	return bCanAttack && !bIsAttacking;
 }
 
@@ -94,7 +93,6 @@ float AHostile::GetCurrentAttackDamage() const
 {
 	return CurrentAttackDamage;
 }
-
 
 const FAttack* AHostile::GetRandomAttackData() const
 {
@@ -107,20 +105,6 @@ const FAttack* AHostile::GetRandomAttackData() const
 
 	const int32 RandomIndex = FMath::RandRange(0, AllRows.Num() - 1);
 	return AllRows[RandomIndex];
-}
-
-float AHostile::GetMontageSectionLength(UAnimMontage* Montage, FName SectionName) const
-{
-	if (!Montage || SectionName == NAME_None) return 0.0f;
-
-	const int32 SectionIndex = Montage->GetSectionIndex(SectionName);
-	if (SectionIndex == INDEX_NONE) return 0.0f;
-
-	float StartTime = 0.0f;
-	float EndTime = 0.0f;
-	Montage->GetSectionStartAndEndTime(SectionIndex, StartTime, EndTime);
-
-	return FMath::Max(0.0f, EndTime - StartTime);
 }
 
 void AHostile::Attack()
@@ -136,24 +120,24 @@ void AHostile::Attack()
 		return;
 	}
 
-	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
-	if (!AnimInstance)
+	const FAttackAnimationPlayResult AnimationResult =
+		FAttackAnimationPlayer::PlayAttackMontage(this, *AttackData, 1.0f);
+
+	if (!AnimationResult.bSucceeded)
 	{
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("敌人攻击动画播放失败: Reason=%s, Montage=%s, Section=%s"),
+			*AnimationResult.ErrorMessage,
+			*GetNameSafe(AttackData->AttackMontage),
+			*AttackData->MontageSection.ToString()
+		);
 		return;
 	}
 
 	bIsAttacking = true;
 	bCanAttack = false;
-
-	AnimInstance->Montage_Play(AttackData->AttackMontage);
-
-	if (AttackData->MontageSection != NAME_None)
-	{
-		AnimInstance->Montage_JumpToSection(
-			AttackData->MontageSection,
-			AttackData->AttackMontage
-		);
-	}
 
 	CurrentAttackDamage = AttackData->Damage;
 	CurrentHostileAttackDirection = AttackData->AttackDirection;
@@ -168,14 +152,11 @@ void AHostile::Attack()
 		1.0f
 	);
 
-	float AttackDuration = GetMontageSectionLength(
-		AttackData->AttackMontage,
-		AttackData->MontageSection
-	);
+	float AttackDuration = AnimationResult.PlayedLength;
 
-	if (AttackDuration <= 0.0f)
+	if (AttackDuration <= 0.0f && AnimationResult.PlayedMontage)
 	{
-		AttackDuration = AttackData->AttackMontage->GetPlayLength();
+		AttackDuration = AnimationResult.PlayedMontage->GetPlayLength();
 	}
 
 	if (AttackDuration <= 0.0f)
@@ -195,8 +176,9 @@ void AHostile::Attack()
 	UE_LOG(
 		LogTemp,
 		Warning,
-		TEXT("敌人发起攻击: Section=%s, Damage=%f, Duration=%f"),
-		*AttackData->MontageSection.ToString(),
+		TEXT("敌人发起攻击: AttackID=%s, Section=%s, Damage=%f, Duration=%f"),
+		*CurrentHostileAttackType.ToString(),
+		*AnimationResult.PlayedSection.ToString(),
 		CurrentAttackDamage,
 		AttackDuration
 	);
@@ -205,7 +187,9 @@ void AHostile::Attack()
 void AHostile::FinishAttack()
 {
 	DisableWeaponTrace();
+
 	bIsAttacking = false;
-	bCanAttack = true; 
+	bCanAttack = true;
+
 	UE_LOG(LogTemp, Warning, TEXT("敌人攻击动作结束"));
 }

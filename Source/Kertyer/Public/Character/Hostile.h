@@ -7,7 +7,6 @@
 
 class UWidgetComponent;
 class UDataTable;
-class UAnimMontage;
 
 UCLASS()
 class KERTYER_API AHostile : public ABase
@@ -57,6 +56,7 @@ protected:
 
 	//能否攻击
 	bool bCanAttack = true;
+
 	//是否正在攻击
 	bool bIsAttacking = false;
 
@@ -71,10 +71,13 @@ protected:
 
 	//当前攻击伤害
 	float CurrentAttackDamage = 0.0f;
+
 	//攻击开始后多久进入伤害窗口
 	FTimerHandle EnableDamageTimer;
+
 	//多少时间后关闭武器碰撞
 	FTimerHandle DisableDamageTimer;
+
 	//动画段播放结束后，结束本次攻击状态
 	FTimerHandle FinishAttackTimer;
 
@@ -86,6 +89,4 @@ protected:
 
 	//获取随机攻击方向
 	const FAttack* GetRandomAttackData() const;
-	//获取动画播放长度
-	float GetMontageSectionLength(UAnimMontage* Montage, FName SectionName) const;
 };

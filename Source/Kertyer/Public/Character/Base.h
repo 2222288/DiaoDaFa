@@ -5,6 +5,7 @@
 #include "InputActionValue.h"
 #include "DataAsset/AttackDH.h"
 #include "Weapon/WeaponTypes.h"
+#include "DataAsset/CombatReactionAnimationData.h"
 #include "Base.generated.h"
 
 class AWeaponBase;
@@ -61,8 +62,31 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Attributes", meta = (DisplayName = "治疗"))
 	void Treat(float HealAmount);
 
+	UFUNCTION(BlueprintCallable, Category = "Combat|Reaction")
+	bool PlayCombatReaction(
+		ECombatReactionType ReactionType,
+		EWeaponContactResult ContactResult = EWeaponContactResult::Ignore,
+		EAttackDirection Direction = EAttackDirection::None,
+		bool bSelfIsSlower = false,
+		bool bValidTimedResponse = false
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Reaction")
+	void PlayWeaponContactReaction(
+		const FWeaponContactResolveOutput& ResolveOutput,
+		EWeaponContactSide SelfSide
+	);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Reaction")
+	void PlayHitReaction();
+
+
+
+
 	/** 接收伤害并结算当前生命值。 */
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+
+
 
 protected:
 	/** 游戏开始时生成或挂载默认武器。 */
@@ -75,5 +99,9 @@ protected:
 	/** 当前持有的武器实例。 */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "当前武器"))
 	TObjectPtr<AWeaponBase> CurrentWeapon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Reaction")
+	TObjectPtr<UCombatReactionAnimationDataAsset> CombatReactionAnimationData = nullptr;
+
 };
 
