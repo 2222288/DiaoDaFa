@@ -42,6 +42,12 @@ struct KERTYER_API FWeaponContactResolveInput
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon", meta = (DisplayName = "B方响应有效窗口"))
 	float ResponseWindowB = 0.5f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon", meta = (DisplayName = "等速判定容差"))
+	float EqualAttackTimeTolerance = 0.12f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "是否速度一致"))
+	bool bIsEqualTiming = false;
+
 	// 保留字段，避免旧蓝图或旧代码断引用；本次判定不再使用重量。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon", meta = (DisplayName = "A方武器重量"))
 	float WeightA = 1.0f;
@@ -57,6 +63,7 @@ struct KERTYER_API FWeaponContactResolveInput
 	// 保留字段，避免旧蓝图或旧代码断引用；本次判定不再使用接触强度。
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon", meta = (DisplayName = "B方接触强度"))
 	float ContactStrengthB = 1.0f;
+
 };
 
 UCLASS()
@@ -82,7 +89,9 @@ private:
 	static int32 DirectionToIndex(EAttackDirection Direction);
 	static int32 GetCircularDirectionDelta(EAttackDirection A, EAttackDirection B);
 
-	static EWeaponContactSide GetSlowerSide(float AttackTimeA, float AttackTimeB);
-	static EWeaponContactSide GetFasterSide(float AttackTimeA, float AttackTimeB);
+	static EAttackTimingRelation GetTimingRelation(float AttackTimeA, float AttackTimeB, float EqualAttackTimeTolerance);
+	static EWeaponContactSide GetSlowerSide(float AttackTimeA, float AttackTimeB, float EqualAttackTimeTolerance);
+	static EWeaponContactSide GetFasterSide(float AttackTimeA, float AttackTimeB, float EqualAttackTimeTolerance);
 	static float GetValidResponseWindow(const FWeaponContactResolveInput& Input, EWeaponContactSide FasterSide);
+	static float NormalizeEqualAttackTimeTolerance(float EqualAttackTimeTolerance);
 };

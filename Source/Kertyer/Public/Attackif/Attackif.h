@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DataAsset/AttackDH.h"
+#include "Combat/CombatTypes.h"
 #include "Math/UnrealMathUtility.h"
 #include "Math/Vector2D.h"
 

@@ -2,11 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Character/Base.h"
-#include "DataAsset/AttackDH.h"
+#include "Combat/CombatTypes.h"
 #include "Hostile.generated.h"
 
 class UWidgetComponent;
-class UDataTable;
+class UAttackMoveDataAsset;
+struct FAttackMoveData;
 
 UCLASS()
 class KERTYER_API AHostile : public ABase
@@ -50,9 +51,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI")
 	FVector HealthBarOffset = FVector(0.0f, 0.0f, 30.0f);
 
-	//攻击数据表
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	TObjectPtr<UDataTable> AttackDataTable;
+	//攻击动作数据资产
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat", meta = (DisplayName = "攻击动作数据资产"))
+	TObjectPtr<UAttackMoveDataAsset> AttackMoveDataAsset = nullptr;
 
 	//能否攻击
 	bool bCanAttack = true;
@@ -87,6 +88,9 @@ protected:
 	//结束攻击函数
 	void FinishAttack();
 
-	//获取随机攻击方向
-	const FAttack* GetRandomAttackData() const;
+	//获取随机攻击动作
+	const FAttackMoveData* GetRandomAttackData() const;
+		
+	virtual void OnAttackCancelledByGuard(AActor* GuardActor, const FString& Reason) override;
+	
 };

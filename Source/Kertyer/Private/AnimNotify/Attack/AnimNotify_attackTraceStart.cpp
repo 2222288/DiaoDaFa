@@ -1,4 +1,4 @@
-#include "AnimNotify/AnimNotify_AttackTraceStart.h"
+#include "AnimNotify/Attack/AnimNotify_AttackTraceStart.h"
 #include "Character/Base.h"
 #include "Components/AttackComponent.h"
 #include "Components/SkeletalMeshComponent.h"

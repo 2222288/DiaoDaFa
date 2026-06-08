@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "DataAsset/AttackDH.h"
+#include "Combat/CombatTypes.h"
 #include "WeaponTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -51,6 +51,15 @@ enum class EWeaponContactDirectionRelation : uint8
 	NonOpposite UMETA(DisplayName = "非对向攻击")
 };
 
+UENUM(BlueprintType)
+enum class EAttackTimingRelation : uint8
+{
+	Invalid UMETA(DisplayName = "无效"),
+	AIsFaster UMETA(DisplayName = "A方较快"),
+	BIsFaster UMETA(DisplayName = "B方较快"),
+	Equal UMETA(DisplayName = "双方速度一致")
+};
+
 USTRUCT(BlueprintType)
 struct KERTYER_API FWeaponAttackData
 {
@@ -98,6 +107,9 @@ struct KERTYER_API FWeaponContactResolveOutput
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "方向关系"))
 	EWeaponContactDirectionRelation DirectionRelation = EWeaponContactDirectionRelation::Invalid;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "攻击时机关系"))
+	EAttackTimingRelation TimingRelation = EAttackTimingRelation::Invalid;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "较慢方"))
 	EWeaponContactSide SlowerSide = EWeaponContactSide::None;
 
@@ -116,8 +128,14 @@ struct KERTYER_API FWeaponContactResolveOutput
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "有效响应窗口"))
 	float ValidResponseWindow = 0.5f;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "等速判定容差"))
+	float EqualTimingTolerance = 0.12f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "是否有效响应"))
 	bool bIsValidTimedResponse = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "是否速度一致"))
+	bool bIsEqualTiming = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "是否伤害较慢方身体"))
 	bool bShouldDamageSlowerBody = false;

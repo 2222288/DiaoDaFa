@@ -1,8 +1,7 @@
 #include "Components/AttackComponent.h"
 
 #include "AnimationLogic/AttackAnimationPlayer.h"
-#include "DataAsset/AttackDH.h"
-#include "Engine/DataTable.h"
+#include "DataAsset/AttackMoveDataAsset.h"
 #include "Engine/World.h"
 #include "Character/Base.h"
 
@@ -175,6 +174,19 @@ void UAttackComponent::CacheMouseInput(const FVector2D& Input, float CurrentTime
 
 void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScore)
 {
+	ABase* OwnerBase = Cast<ABase>(GetOwner());
+	if (OwnerBase && OwnerBase->IsDeflecting())
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("[攻击交互][攻击失败] 当前正在弹刀，不能攻击 角色=%s"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("无")
+		);
+
+		return;
+	}
+
 	if (Direction == EAttackDirection::None)
 	{
 		return;
@@ -206,13 +218,13 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		return;
 	}
 
-	const FAttack* AttackRow = FindAttackRowByDirection(Direction);
-	if (!AttackRow || !AttackRow->AttackMontage)
+	const FAttackMoveData* AttackData = FindAttackMoveByDirection(Direction);
+	if (!AttackData || !AttackData->AttackMontage)
 	{
 		UE_LOG(
 			LogTemp,
 			Error,
-			TEXT("[攻击交互][出招失败] 原因=未找到AttackRow或Montage为空 角色=%s 方向=%d"),
+			TEXT("[攻击交互][出招失败] 原因=未找到攻击动作数据或Montage为空 角色=%s 方向=%d"),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
 			static_cast<int32>(Direction)
 		);
@@ -220,19 +232,39 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 		return;
 	}
 
+	float GuardDuration = 0.0f;
+
+	if (OwnerBase && OwnerBase->TryConvertAttackToGuard(Direction, CurrentTime, GuardDuration))
+	{
+		StartConvertedGuard(Direction, CurrentTime, GuardDuration);
+		ClearPendingAttack();
+		ClearSamplingBuffer();
+		RefreshAttackState(CurrentTime);
+		return;
+	}
+
+	const float AttackPlayRate = OwnerBase
+		? OwnerBase->ConsumeNextAttackPlayRateModifier()
+		: 1.0f;
+
 	const FAttackAnimationPlayResult AnimationResult =
-		FAttackAnimationPlayer::PlayAttackMontage(GetOwner(), *AttackRow, 1.0f);
+		FAttackAnimationPlayer::PlayAttackMontage(GetOwner(), *AttackData, AttackPlayRate);
 
 	if (!AnimationResult.bSucceeded)
 	{
+		if (OwnerBase && AttackPlayRate > 1.0f)
+		{
+			OwnerBase->GrantNextAttackSpeedBonus(AttackPlayRate);
+		}
+
 		UE_LOG(
 			LogTemp,
 			Error,
 			TEXT("[攻击交互][出招失败] 原因=%s 角色=%s Montage=%s Section=%s 方向=%d"),
 			*AnimationResult.ErrorMessage,
 			GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
-			*GetNameSafe(AttackRow->AttackMontage),
-			*AttackRow->MontageSection.ToString(),
+			*GetNameSafe(AttackData->AttackMontage),
+			*AttackData->MontageSection.ToString(),
 			static_cast<int32>(Direction)
 		);
 
@@ -241,87 +273,181 @@ void UAttackComponent::PerformAttack(EAttackDirection Direction, float TrackScor
 
 	const float PlayedLength = AnimationResult.PlayedLength;
 
-	CurrentBaseDamage = AttackRow->Damage;
-	CurrentDamageModifier = NextAttackDamageModifier;
-	NextAttackDamageModifier = TrackScore;
-	CurrentWindowTime = AttackRow->WindowTime;
-	CurrentAttackStartTime = CurrentTime;
-	CurrentAttackEndTime = CurrentAttackStartTime + PlayedLength;
-	CurrentDirection = Direction;
-	CurrentAttackType = AttackRow->AttackID;
-	bWeaponTraceWindowOpen = false;
-	AttackTriggerCounter++;
+	const auto ApplySuccessfulAttackState = [&]()
+		{
+			bIsBlocking = false;
 
-	if (ABase* OwnerCharacter = Cast<ABase>(GetOwner()))
+			CurrentBaseDamage = AttackData->Damage;
+			CurrentDamageModifier = NextAttackDamageModifier;
+			NextAttackDamageModifier = TrackScore;
+			CurrentWindowTime = AttackData->WindowTime;
+			CurrentAttackStartTime = CurrentTime;
+			CurrentAttackEndTime = CurrentAttackStartTime + PlayedLength;
+			CurrentDirection = Direction;
+			CurrentAttackType = AttackData->AttackID;
+			bWeaponTraceWindowOpen = false;
+			AttackTriggerCounter++;
+		};
+
+	const auto NotifyWeaponAttackStartedIfOwnerIsBase = [&](float ActualCounterAttackValidWindow) -> bool
+		{
+			if (ABase* OwnerCharacter = Cast<ABase>(GetOwner()))
+			{
+				OwnerCharacter->NotifyWeaponAttackStarted(
+					Direction,
+					CurrentAttackType,
+					CurrentAttackStartTime,
+					CurrentBaseDamage,
+					CurrentDamageModifier,
+					ActualCounterAttackValidWindow
+				);
+
+				return true;
+			}
+
+			return false;
+		};
+
+	const auto LogSuccessfulAttackWithPlayRate = [&](float ActualCounterAttackValidWindow)
+		{
+			UE_LOG(
+				LogTemp,
+				Warning,
+				TEXT("[攻击交互][出招成功] 角色=%s 方向=%d 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 攻击播放倍率=%.3f 攻击开始=%.3f 攻击时长=%.3f 响应窗口=%.3f 触发计数=%d"),
+				GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+				static_cast<int32>(Direction),
+				*CurrentAttackType.ToString(),
+				*GetNameSafe(AttackData->AttackMontage),
+				*AttackData->MontageSection.ToString(),
+				CurrentBaseDamage,
+				CurrentDamageModifier,
+				GetCurrentAttackDamage(),
+				AttackPlayRate,
+				CurrentAttackStartTime,
+				PlayedLength,
+				ActualCounterAttackValidWindow,
+				AttackTriggerCounter
+			);
+		};
+
+	const auto LogSuccessfulAttackWithoutPlayRate = [&](float ActualCounterAttackValidWindow)
+		{
+			UE_LOG(
+				LogTemp,
+				Warning,
+				TEXT("[攻击交互][出招成功] 角色=%s 方向=%d 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 攻击开始=%.3f 攻击时长=%.3f 响应窗口=%.3f 触发计数=%d"),
+				GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+				static_cast<int32>(Direction),
+				*CurrentAttackType.ToString(),
+				*GetNameSafe(AttackData->AttackMontage),
+				*AttackData->MontageSection.ToString(),
+				CurrentBaseDamage,
+				CurrentDamageModifier,
+				GetCurrentAttackDamage(),
+				CurrentAttackStartTime,
+				PlayedLength,
+				ActualCounterAttackValidWindow,
+				AttackTriggerCounter
+			);
+		};
+
+	ApplySuccessfulAttackState();
+
+	const float ActualCounterAttackValidWindow =
+		AttackData->CounterAttackValidWindow > 0.0f
+		? AttackData->CounterAttackValidWindow
+		: CounterAttackValidWindow;
+
+	if (NotifyWeaponAttackStartedIfOwnerIsBase(ActualCounterAttackValidWindow))
 	{
-		OwnerCharacter->NotifyWeaponAttackStarted(
-			Direction,
-			CurrentAttackType,
-			CurrentAttackStartTime,
-			CurrentBaseDamage,
-			CurrentDamageModifier,
-			CounterAttackValidWindow
-		);
+		LogSuccessfulAttackWithPlayRate(ActualCounterAttackValidWindow);
+		return;
 	}
 
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][出招成功] 角色=%s 方向=%d 攻击ID=%s Montage=%s Section=%s 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 攻击开始=%.3f 攻击时长=%.3f 响应窗口=%.3f 触发计数=%d"),
-		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
-		static_cast<int32>(Direction),
-		*CurrentAttackType.ToString(),
-		*GetNameSafe(AttackRow->AttackMontage),
-		*AttackRow->MontageSection.ToString(),
-		CurrentBaseDamage,
-		CurrentDamageModifier,
-		GetCurrentAttackDamage(),
-		CurrentAttackStartTime,
-		PlayedLength,
-		CounterAttackValidWindow,
-		AttackTriggerCounter
-	);
+	ApplySuccessfulAttackState();
+
+	NotifyWeaponAttackStartedIfOwnerIsBase(ActualCounterAttackValidWindow);
+	LogSuccessfulAttackWithoutPlayRate(ActualCounterAttackValidWindow);
 
 	ClearPendingAttack();
 	ClearSamplingBuffer();
 	RefreshAttackState(CurrentTime);
 }
-
-const FAttack* UAttackComponent::FindAttackRowByDirection(EAttackDirection InDirection) const
+void UAttackComponent::StartConvertedGuard(
+	EAttackDirection Direction,
+	float CurrentTime,
+	float GuardDuration
+)
 {
-	if (!AttackDataTable || InDirection == EAttackDirection::None)
+	const float SafeGuardDuration = FMath::Max(0.1f, GuardDuration);
+
+	bIsBlocking = true;
+	bIsDeflecting = false;
+
+	CurrentBaseDamage = 0.0f;
+	CurrentDamageModifier = 1.0f;
+	CurrentWindowTime = SafeGuardDuration;
+	CurrentAttackStartTime = CurrentTime;
+	CurrentAttackEndTime = CurrentTime + SafeGuardDuration;
+	CurrentDirection = Direction;
+	CurrentAttackType = TEXT("Guard");
+	bWeaponTraceWindowOpen = false;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("[攻击交互][攻击转格挡] 角色=%s 方向=%s 开始=%.3f 时长=%.3f"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+		AttackDirectionToChinese(Direction),
+		CurrentAttackStartTime,
+		SafeGuardDuration
+	);
+}
+
+const FAttackMoveData* UAttackComponent::FindAttackMoveByDirection(EAttackDirection InDirection) const
+{
+	if (!AttackMoveDataAsset || InDirection == EAttackDirection::None)
 	{
 		return nullptr;
 	}
 
-	static const FString ContextString(TEXT("FindAttackRowByDirection"));
-
-	const TArray<FName> RowNames = AttackDataTable->GetRowNames();
-	for (const FName& RowName : RowNames)
-	{
-		const FAttack* Row = AttackDataTable->FindRow<FAttack>(RowName, ContextString);
-		if (!Row)
-		{
-			continue;
-		}
-
-		if (Row->AttackDirection == InDirection)
-		{
-			return Row;
-		}
-	}
-
-	return nullptr;
+	return AttackMoveDataAsset->FindAttackByDirection(InDirection);
 }
 
 void UAttackComponent::StartBlock()
 {
+	if (bIsBlocking)
+	{
+		return;
+	}
+
 	bIsBlocking = true;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("[攻击交互][格挡开始] 角色=%s 当前攻击状态=%d"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+		static_cast<int32>(AttackState)
+	);
 }
 
 void UAttackComponent::StopBlock()
 {
+	if (!bIsBlocking)
+	{
+		return;
+	}
+
 	bIsBlocking = false;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("[攻击交互][格挡结束] 角色=%s 当前攻击状态=%d"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
+		static_cast<int32>(AttackState)
+	);
 }
 
 void UAttackComponent::RefreshAttackState(float CurrentTime)
@@ -468,6 +594,9 @@ void UAttackComponent::InterruptCurrentAttack()
 {
 	FAttackAnimationPlayer::StopAttackMontage(GetOwner(),nullptr,0.1f);
 
+	bIsBlocking = false;
+	bIsDeflecting = false;
+
 	CurrentAttackStartTime = -1.0f;
 	CurrentAttackEndTime = -1.0f;
 	CurrentWindowTime = 0.0f;
@@ -487,5 +616,47 @@ void UAttackComponent::InterruptCurrentAttack()
 		TEXT("[攻击交互][攻击组件被打断] 角色=%s 新状态=%d"),
 		GetOwner() ? *GetOwner()->GetName() : TEXT("无"),
 		static_cast<int32>(AttackState)
+	);
+}
+
+void UAttackComponent::StartDeflect()
+{
+	if (bIsDeflecting)
+	{
+		return;
+	}
+
+	bIsDeflecting = true;
+
+	// 弹刀时不应继续保持格挡有效帧
+	bIsBlocking = false;
+
+	// 弹刀时当前攻击被打断，防止继续造成伤害
+	CurrentAttackStartTime = -1.0f;
+	CurrentBaseDamage = 0.0f;
+	CurrentDamageModifier = 1.0f;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("[攻击交互][弹刀开始] 角色=%s"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无")
+	);
+}
+
+void UAttackComponent::EndDeflect()
+{
+	if (!bIsDeflecting)
+	{
+		return;
+	}
+
+	bIsDeflecting = false;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("[攻击交互][弹刀结束] 角色=%s"),
+		GetOwner() ? *GetOwner()->GetName() : TEXT("无")
 	);
 }

@@ -8,7 +8,8 @@ const FCombatReactionAnimation* UCombatReactionAnimationDataAsset::FindBestReact
 	bool bValidTimedResponse
 ) const
 {
-	const FCombatReactionAnimation* Fallback = nullptr;
+	const FCombatReactionAnimation* BestRow = nullptr;
+	int32 BestScore = MIN_int32;
 
 	for (const FCombatReactionAnimation& Row : ReactionAnimations)
 	{
@@ -42,16 +43,34 @@ const FCombatReactionAnimation* UCombatReactionAnimationDataAsset::FindBestReact
 			continue;
 		}
 
-		if (Row.Direction == Direction)
+		int32 Score = 0;
+
+		if (Row.ContactResult == ContactResult)
 		{
-			return &Row;
+			Score += 30;
 		}
 
-		if (!Fallback)
+		if (Row.Direction == Direction)
 		{
-			Fallback = &Row;
+			Score += 30;
+		}
+
+		if (Row.bRequireSelfSlower == bSelfIsSlower)
+		{
+			Score += 10;
+		}
+
+		if (Row.bRequireValidTimedResponse == bValidTimedResponse)
+		{
+			Score += 10;
+		}
+
+		if (!BestRow || Score > BestScore)
+		{
+			BestRow = &Row;
+			BestScore = Score;
 		}
 	}
 
-	return Fallback;
+	return BestRow;
 }

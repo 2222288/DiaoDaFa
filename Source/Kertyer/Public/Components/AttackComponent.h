@@ -4,14 +4,15 @@
 
 #include "Components/ActorComponent.h"
 
-#include "DataAsset/AttackDH.h"
+#include "Combat/CombatTypes.h"
 
 #include "Attackif/Attackif.h"
 
 #include "Attackif/AttackValid.h"
 #include "AttackComponent.generated.h"
 
-class UDataTable;
+class UAttackMoveDataAsset;
+struct FAttackMoveData;
 
 /**
  * 攻击组件：
@@ -44,20 +45,27 @@ public:
 	/** 松开攻击键时结束采样并清理输入缓存。 */
 	void EndAttackSampling();
 
-	/** 开始格挡。 */
+	/** 开始格挡。通常由格挡动画通知调用。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Block", meta = (DisplayName = "开始格挡"))
 	void StartBlock();
 
-	/** 停止格挡。 */
+	/** 停止格挡。通常由格挡动画通知调用。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Block", meta = (DisplayName = "停止格挡"))
 	void StopBlock();
+
+	/** 当前是否处于格挡有效段。 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Block", meta = (DisplayName = "当前是否正在格挡"))
+	bool IsBlocking() const { return bIsBlocking; }
+
 
 public:
 	/** 鼠标移动采样的最小阈值，低于该距离的输入会被过滤。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat", meta = (DisplayName = "鼠标移动最小阈值"))
 	float MinSampleDistance = 8.0f;
 
-	/** 攻击数据表，用方向查找对应攻击动画、伤害和窗口期。 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat", meta = (DisplayName = "攻击数据表"))
-	TObjectPtr<UDataTable> AttackDataTable = nullptr;
+	/** 攻击动作数据资产，用方向查找对应攻击动画、伤害和窗口期。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat", meta = (DisplayName = "攻击动作数据资产"))
+	TObjectPtr<UAttackMoveDataAsset> AttackMoveDataAsset = nullptr;
 
 	/** 当前这一次攻击实际使用的伤害倍率。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Score", meta = (DisplayName = "当前攻击伤害倍率"))
@@ -121,6 +129,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Damage", meta = (DisplayName = "获取当前攻击ID"))
 	FName GetCurrentAttackType() const { return CurrentAttackType; }
 
+	UFUNCTION(BlueprintCallable, Category = "Combat|Deflect", meta = (DisplayName = "开始弹刀"))
+	void StartDeflect();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Deflect", meta = (DisplayName = "结束弹刀"))
+	void EndDeflect();
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Deflect", meta = (DisplayName = "当前是否正在弹刀"))
+	bool IsDeflecting() const { return bIsDeflecting; }
+
+	// 本次攻击被攻击前判定转换为格挡后，记录组件状态。
+	void StartConvertedGuard(EAttackDirection Direction, float CurrentTime, float GuardDuration);
 	/** 当前武器判定窗口是否已经打开。 */
 	bool bWeaponTraceWindowOpen = false;
 
@@ -134,8 +153,10 @@ private:
 	/** 执行一次攻击：请求动画播放、更新伤害数据、下发武器攻击数据。 */
 	void PerformAttack(EAttackDirection Direction, float TrackScore);
 
-	/** 根据攻击方向从攻击数据表查找攻击行。 */
-	const FAttack* FindAttackRowByDirection(EAttackDirection InDirection) const;
+	/** 根据攻击方向从攻击动作数据资产查找攻击动作。 */
+	const FAttackMoveData* FindAttackMoveByDirection(EAttackDirection InDirection) const;
+
+	bool bIsDeflecting = false;
 
 	/** 按当前时间刷新攻击状态机。 */
 	void RefreshAttackState(float CurrentTime);
@@ -198,7 +219,7 @@ private:
 	/** 上一次被接受攻击输入的时间。 */
 	float LastAcceptedInputTime = -10000.0f;
 
-	/** 当前攻击基础伤害，来自 DataTable 的 AttackRow->Damage。 */
+	/** 当前攻击基础伤害 */
 	float CurrentBaseDamage = 0.0f;
 
 	/** 攻击触发计数器，每次真正出招时 +1，AnimBP 用它判断是否触发新攻击。 */

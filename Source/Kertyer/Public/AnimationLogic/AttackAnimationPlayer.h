@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 
@@ -6,7 +6,7 @@ class UAnimInstance;
 class UAnimMontage;
 class AActor;
 
-struct FAttack;
+struct FAttackMoveData;
 struct FCombatReactionAnimation;
 
 struct FAttackAnimationPlayResult
@@ -25,7 +25,7 @@ public:
 
 	static FAttackAnimationPlayResult PlayAttackMontage(
 		AActor* Owner,
-		const FAttack& AttackRow,
+		const FAttackMoveData& AttackData,
 		float PlayRate = 1.0f
 	);
 

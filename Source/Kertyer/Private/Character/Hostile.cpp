@@ -7,7 +7,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Kismet/GameplayStatics.h"
-#include "Engine/DataTable.h"
+#include "DataAsset/AttackMoveDataAsset.h"
 #include "TimerManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -94,18 +94,16 @@ float AHostile::GetCurrentAttackDamage() const
 	return CurrentAttackDamage;
 }
 
-const FAttack* AHostile::GetRandomAttackData() const
+const FAttackMoveData* AHostile::GetRandomAttackData() const
 {
-	if (!AttackDataTable) return nullptr;
+	if (!AttackMoveDataAsset)
+	{
+		return nullptr;
+	}
 
-	TArray<FAttack*> AllRows;
-	AttackDataTable->GetAllRows<FAttack>(TEXT("AHostile::GetRandomAttackData"), AllRows);
-
-	if (AllRows.Num() <= 0) return nullptr;
-
-	const int32 RandomIndex = FMath::RandRange(0, AllRows.Num() - 1);
-	return AllRows[RandomIndex];
+	return AttackMoveDataAsset->GetRandomAttack();
 }
+
 
 void AHostile::Attack()
 {
@@ -114,42 +112,97 @@ void AHostile::Attack()
 		return;
 	}
 
-	const FAttack* AttackData = GetRandomAttackData();
+	const FAttackMoveData* AttackData = GetRandomAttackData();
 	if (!AttackData || !AttackData->AttackMontage)
 	{
 		return;
 	}
 
+	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
+	float GuardDuration = 0.0f;
+	if (TryConvertAttackToGuard(AttackData->AttackDirection, CurrentTime, GuardDuration))
+	{
+		bIsAttacking = true;
+		bCanAttack = false;
+
+		CurrentAttackDamage = 0.0f;
+		CurrentHostileAttackDirection = AttackData->AttackDirection;
+		CurrentHostileAttackType = TEXT("Guard");
+		CurrentHostileAttackStartTime = CurrentTime;
+
+		const float SafeGuardDuration = FMath::Max(0.1f, GuardDuration);
+
+		GetWorldTimerManager().ClearTimer(FinishAttackTimer);
+		GetWorldTimerManager().SetTimer(
+			FinishAttackTimer,
+			this,
+			&AHostile::FinishAttack,
+			SafeGuardDuration,
+			false
+		);
+
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("敌人攻击请求被转换为格挡: Direction=%d, Duration=%f"),
+			static_cast<int32>(CurrentHostileAttackDirection),
+			SafeGuardDuration
+		);
+
+		return;
+	}
+
+	const float AttackPlayRate = ConsumeNextAttackPlayRateModifier();
+
+	const float ActualCounterAttackValidWindow =
+		AttackData->CounterAttackValidWindow > 0.0f
+		? AttackData->CounterAttackValidWindow
+		: 0.5f;
+
+	CurrentAttackDamage = AttackData->Damage;
+	CurrentHostileAttackDirection = AttackData->AttackDirection;
+	CurrentHostileAttackType = AttackData->AttackID;
+	CurrentHostileAttackStartTime = CurrentTime;
+
 	const FAttackAnimationPlayResult AnimationResult =
-		FAttackAnimationPlayer::PlayAttackMontage(this, *AttackData, 1.0f);
+		FAttackAnimationPlayer::PlayAttackMontage(this, *AttackData, AttackPlayRate);
 
 	if (!AnimationResult.bSucceeded)
 	{
+		if (AttackPlayRate > 1.0f)
+		{
+			GrantNextAttackSpeedBonus(AttackPlayRate);
+		}
+
+		CurrentAttackDamage = 0.0f;
+		CurrentHostileAttackDirection = EAttackDirection::None;
+		CurrentHostileAttackType = NAME_None;
+		CurrentHostileAttackStartTime = 0.0f;
+
 		UE_LOG(
 			LogTemp,
-			Error,
-			TEXT("敌人攻击动画播放失败: Reason=%s, Montage=%s, Section=%s"),
-			*AnimationResult.ErrorMessage,
-			*GetNameSafe(AttackData->AttackMontage),
-			*AttackData->MontageSection.ToString()
+			Warning,
+			TEXT("敌人攻击动画播放失败: AttackID=%s, Section=%s, PlayRate=%f, Error=%s"),
+			*AttackData->AttackID.ToString(),
+			*AttackData->MontageSection.ToString(),
+			AttackPlayRate,
+			*AnimationResult.ErrorMessage
 		);
+
 		return;
 	}
 
 	bIsAttacking = true;
 	bCanAttack = false;
 
-	CurrentAttackDamage = AttackData->Damage;
-	CurrentHostileAttackDirection = AttackData->AttackDirection;
-	CurrentHostileAttackType = AttackData->AttackID;
-	CurrentHostileAttackStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-
 	NotifyWeaponAttackStarted(
 		CurrentHostileAttackDirection,
 		CurrentHostileAttackType,
 		CurrentHostileAttackStartTime,
 		AttackData->Damage,
-		1.0f
+		1.0f,
+		ActualCounterAttackValidWindow
 	);
 
 	float AttackDuration = AnimationResult.PlayedLength;
@@ -176,11 +229,13 @@ void AHostile::Attack()
 	UE_LOG(
 		LogTemp,
 		Warning,
-		TEXT("敌人发起攻击: AttackID=%s, Section=%s, Damage=%f, Duration=%f"),
+		TEXT("敌人发起攻击: AttackID=%s, Section=%s, Damage=%f, Duration=%f, ResponseWindow=%f, PlayRate=%f"),
 		*CurrentHostileAttackType.ToString(),
 		*AnimationResult.PlayedSection.ToString(),
 		CurrentAttackDamage,
-		AttackDuration
+		AttackDuration,
+		ActualCounterAttackValidWindow,
+		AttackPlayRate
 	);
 }
 
@@ -192,4 +247,30 @@ void AHostile::FinishAttack()
 	bCanAttack = true;
 
 	UE_LOG(LogTemp, Warning, TEXT("敌人攻击动作结束"));
+}
+
+void AHostile::OnAttackCancelledByGuard(AActor* GuardActor, const FString& Reason)
+{
+	GetWorldTimerManager().ClearTimer(EnableDamageTimer);
+	GetWorldTimerManager().ClearTimer(DisableDamageTimer);
+	GetWorldTimerManager().ClearTimer(FinishAttackTimer);
+
+	DisableWeaponTrace();
+
+	bIsAttacking = false;
+	bCanAttack = true;
+
+	CurrentAttackDamage = 0.0f;
+	CurrentHostileAttackDirection = EAttackDirection::None;
+	CurrentHostileAttackType = NAME_None;
+	CurrentHostileAttackStartTime = 0.0f;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("[敌人攻击][被格挡取消] 敌人=%s 格挡者=%s 原因=%s"),
+		*GetName(),
+		GuardActor ? *GuardActor->GetName() : TEXT("无"),
+		*Reason
+	);
 }

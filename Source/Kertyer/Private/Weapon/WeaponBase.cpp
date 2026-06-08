@@ -542,12 +542,19 @@ void AWeaponBase::HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hi
 				RelationToText(ResolveOutput.DirectionRelation)
 			);
 
+			const bool bFailedGuardContact =
+				ResolveOutput.Result == EWeaponContactResult::Clash &&
+				ResolveOutput.bIsValidTimedResponse &&
+				ResolveOutput.DirectionRelation == EWeaponContactDirectionRelation::NonOpposite;
+
 			DamageSourceWeapon->ApplyBodyDamageAndInterrupt(
 				DamagedWeapon->CurrentHolder,
 				DamageSourceWeapon,
 				Hit,
 				DamageSourceWeapon->GetCurrentAttackDamage(),
-				Reason
+				Reason,
+				bFailedGuardContact,
+				!bFailedGuardContact
 			);
 		}
 	}
@@ -618,7 +625,13 @@ void AWeaponBase::ApplyContactResultToWeapons(AWeaponBase* OtherWeapon, EWeaponC
 	OtherWeapon->PreviousSocketLocations.Empty();
 }
 
-bool AWeaponBase::ShouldIgnoreBodyHitByCounterWindow(ABase* HitBody, const FHitResult& Hit, float& OutElapsed, float& OutWindow, FString& OutReason) const
+bool AWeaponBase::ShouldIgnoreBodyHitByCounterWindow(
+	ABase* HitBody,
+	const FHitResult& Hit,
+	float& OutElapsed,
+	float& OutWindow,
+	FString& OutReason
+) const
 {
 	(void)Hit;
 
@@ -626,28 +639,28 @@ bool AWeaponBase::ShouldIgnoreBodyHitByCounterWindow(ABase* HitBody, const FHitR
 	OutWindow = DefaultCounterAttackWindow;
 	OutReason = TEXT("无");
 
-	if (!GetWorld() || !CurrentAttackData.IsValid())
+	if (!GetWorld() || !CurrentAttackData.IsValid() || !HitBody || !HitBody->GetCurrentWeapon())
 	{
 		return false;
 	}
 
-	float FirstAttackStartTime = CurrentAttackData.AttackStartTime;
-	float FirstAttackWindow = NormalizeWindow(CurrentAttackData.CounterAttackValidWindow);
-	FString FirstWeaponName = GetName();
+	const AWeaponBase* OtherWeapon = HitBody->GetCurrentWeapon();
+	const FWeaponAttackData& OtherAttackData = OtherWeapon->GetCurrentAttackData();
 
-	if (HitBody && HitBody->GetCurrentWeapon())
+	// 只有被打者真的在本次攻击之后发起了响应攻击，才忽略身体命中。
+	// 没有响应攻击时，不能因为还在响应窗口内就无视身体伤害。
+	if (!OtherAttackData.IsValid())
 	{
-		const AWeaponBase* OtherWeapon = HitBody->GetCurrentWeapon();
-		const FWeaponAttackData& OtherAttackData = OtherWeapon->GetCurrentAttackData();
-
-		if (OtherAttackData.IsValid() && OtherAttackData.AttackStartTime < FirstAttackStartTime)
-		{
-			FirstAttackStartTime = OtherAttackData.AttackStartTime;
-			FirstAttackWindow = NormalizeWindow(OtherAttackData.CounterAttackValidWindow);
-			FirstWeaponName = OtherWeapon->GetName();
-		}
+		return false;
 	}
 
+	if (OtherAttackData.AttackStartTime <= CurrentAttackData.AttackStartTime)
+	{
+		return false;
+	}
+
+	const float FirstAttackStartTime = CurrentAttackData.AttackStartTime;
+	const float FirstAttackWindow = NormalizeWindow(CurrentAttackData.CounterAttackValidWindow);
 	const float Now = GetWorld()->GetTimeSeconds();
 
 	OutElapsed = Now - FirstAttackStartTime;
@@ -658,15 +671,21 @@ bool AWeaponBase::ShouldIgnoreBodyHitByCounterWindow(ABase* HitBody, const FHitR
 	if (bInsideWindow)
 	{
 		OutReason = FString::Printf(
-			TEXT("先发武器=%s，当前仍在先发攻击响应窗口内"),
-			*FirstWeaponName
+			TEXT("被扫到身体的一方已经在响应窗口内发起后发攻击，身体命中暂不消费，等待武器反馈")
 		);
 	}
 
 	return bInsideWindow;
 }
-
-void AWeaponBase::ApplyBodyDamageAndInterrupt(ABase* TargetBody, AWeaponBase* DamageSourceWeapon, const FHitResult& Hit, float Damage, const FString& Reason)
+void AWeaponBase::ApplyBodyDamageAndInterrupt(
+	ABase* TargetBody,
+	AWeaponBase* DamageSourceWeapon,
+	const FHitResult& Hit,
+	float Damage,
+	const FString& Reason,
+	bool bSuppressNonLethalHitReaction,
+	bool bInterruptTarget
+)
 {
 	if (!TargetBody || Damage <= 0.0f)
 	{
@@ -680,30 +699,45 @@ void AWeaponBase::ApplyBodyDamageAndInterrupt(ABase* TargetBody, AWeaponBase* Da
 	SourceWeapon->HitActorsThisTrace.Add(TargetBody);
 	SourceWeapon->MarkInteractionConsumed(TargetBody);
 
-	UGameplayStatics::ApplyDamage(
-		TargetBody,
-		Damage,
-		InstigatorController,
-		SourceWeapon,
-		UDamageType::StaticClass()
-	);
+	if (bSuppressNonLethalHitReaction)
+	{
+		TargetBody->ApplyDamageWithoutNonLethalHitReaction(
+			Damage,
+			InstigatorController,
+			SourceWeapon
+		);
+	}
+	else
+	{
+		UGameplayStatics::ApplyDamage(
+			TargetBody,
+			Damage,
+			InstigatorController,
+			SourceWeapon,
+			UDamageType::StaticClass()
+		);
+	}
 
-	TargetBody->InterruptCurrentAttackByBodyHit(SourceWeapon);
+	if (bInterruptTarget)
+	{
+		TargetBody->InterruptCurrentAttackByBodyHit(SourceWeapon);
+	}
 
 	SourceWeapon->BP_OnBodyHit(TargetBody, Hit, Damage);
 
 	UE_LOG(LogTemp, Warning,
-		TEXT("[攻击交互][身体伤害并打断] 攻击者=%s 攻击武器=%s 受击者=%s 方向=%s 攻击ID=%s 伤害=%.2f 原因=%s 命中点=%s"),
+		TEXT("[攻击交互][身体伤害并打断] 攻击者=%s 攻击武器=%s 受击者=%s 方向=%s 攻击ID=%s 伤害=%.2f 抑制Hit反应=%s 打断目标=%s 原因=%s 命中点=%s"),
 		*SafeObjectName(SourceHolder),
 		*SafeObjectName(SourceWeapon),
 		*SafeObjectName(TargetBody),
 		DirectionToText(SourceWeapon->CurrentAttackDirection),
 		*SafeNameText(SourceWeapon->CurrentAttackData.AttackType),
 		Damage,
+		bSuppressNonLethalHitReaction ? TEXT("是") : TEXT("否"),
+		bInterruptTarget ? TEXT("是") : TEXT("否"),
 		*Reason,
 		*Hit.Location.ToCompactString());
 }
-
 bool AWeaponBase::HasConsumedInteraction() const
 {
 	return bHasResolvedInteractionThisTrace;

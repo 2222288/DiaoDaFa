@@ -1,10 +1,10 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
-#include "DataAsset/AttackDH.h"
+#include "Combat/CombatTypes.h"
 #include "BaseAnimInstance.generated.h"
 
 class UAttackComponent;
@@ -18,63 +18,63 @@ class KERTYER_API UBaseAnimInstance : public UAnimInstance
 
 public:
 
-    // µØÃæËÙ¶È (ÓÃÓÚÇı¶¯ Idle/Walk/Run »ìºÏ)
+    // åœ°é¢é€Ÿåº¦ (ç”¨äºé©±åŠ¨ Idle/Walk/Run æ··åˆ)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
     float GroundSpeed;
 
-    // ÊÇ·ñÔÚÒÆ¶¯ (ÓÃÓÚÇĞ»»×´Ì¬»ú)
+    // æ˜¯å¦åœ¨ç§»åŠ¨ (ç”¨äºåˆ‡æ¢çŠ¶æ€æœº)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
     bool bIsMoving;
 
-    // ÊÇ·ñÔÚ¿ÕÖĞ (ÓÃÓÚÌøÔ¾¶¯»­)
+    // æ˜¯å¦åœ¨ç©ºä¸­ (ç”¨äºè·³è·ƒåŠ¨ç”»)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
     bool bIsFalling;
 
-    // ËÙ¶ÈÏòÁ¿
+    // é€Ÿåº¦å‘é‡
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
     FVector Velocity;
 
-    //·½Ïò
+    //æ–¹å‘
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
     float Direction;
 
-    // ½ÇÉ«ÒıÓÃ (»º´æÆğÀ´£¬±ÜÃâÃ¿Ö¡ Cast£¬ÓÅ»¯ĞÔÄÜ)
+    // è§’è‰²å¼•ç”¨ (ç¼“å­˜èµ·æ¥ï¼Œé¿å…æ¯å¸§ Castï¼Œä¼˜åŒ–æ€§èƒ½)
     UPROPERTY(BlueprintReadOnly, Category = "References")
     TObjectPtr<class ACharacter> OwnerCharacter;
 
-    // ÒÆ¶¯×é¼şÒıÓÃ
+    // ç§»åŠ¨ç»„ä»¶å¼•ç”¨
     UPROPERTY(BlueprintReadOnly, Category = "References")
     TObjectPtr<class UCharacterMovementComponent> MovementComponent;
 
-    // ¹¥»÷×é¼şÒıÓÃ
+    // æ”»å‡»ç»„ä»¶å¼•ç”¨
     UPROPERTY(BlueprintReadOnly, Category = "References")
     TObjectPtr<UAttackComponent> AttackComponent;
 
-    // ¹¥»÷×´Ì¬
+    // æ”»å‡»çŠ¶æ€
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     EAttackState AttackState = EAttackState::Idle;
 
-    // µ±Ç°¹¥»÷·½Ïò
+    // å½“å‰æ”»å‡»æ–¹å‘
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     EAttackDirection AttackDirection = EAttackDirection::None;
 
-    // µ±Ç°ÊÇ·ñ´¦ÓÚ¹¥»÷ÖĞ
+    // å½“å‰æ˜¯å¦å¤„äºæ”»å‡»ä¸­
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     bool bIsAttackActive = false;
 
-    // ±¾Ö¡ÊÇ·ñ´¥·¢ÁËĞÂ¹¥»÷
+    // æœ¬å¸§æ˜¯å¦è§¦å‘äº†æ–°æ”»å‡»
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     bool bAttackTriggered = false;
 
-    // ¹¥»÷´¥·¢¼ÆÊı
+    // æ”»å‡»è§¦å‘è®¡æ•°
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     int32 AttackTriggerCounter = 0;
 
 protected:
-    // ³õÊ¼»¯º¯Êı (¶ÔÓ¦À¶Í¼µÄ Event Blueprint Initialize Animation)
+    // åˆå§‹åŒ–å‡½æ•° (å¯¹åº”è“å›¾çš„ Event Blueprint Initialize Animation)
     virtual void NativeInitializeAnimation() override;
 
-    // ¸üĞÂº¯Êı (¶ÔÓ¦À¶Í¼µÄ Event Blueprint Update Animation)
+    // æ›´æ–°å‡½æ•° (å¯¹åº”è“å›¾çš„ Event Blueprint Update Animation)
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 
 protected:

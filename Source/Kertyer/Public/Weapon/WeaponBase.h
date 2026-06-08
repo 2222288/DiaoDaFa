@@ -84,7 +84,15 @@ protected:
 
 	bool ShouldIgnoreBodyHitByCounterWindow(ABase* HitBody, const FHitResult& Hit, float& OutElapsed, float& OutWindow, FString& OutReason) const;
 
-	void ApplyBodyDamageAndInterrupt(ABase* TargetBody, AWeaponBase* DamageSourceWeapon, const FHitResult& Hit, float Damage, const FString& Reason);
+	void ApplyBodyDamageAndInterrupt(
+		ABase* TargetBody,
+		AWeaponBase* DamageSourceWeapon,
+		const FHitResult& Hit,
+		float Damage,
+		const FString& Reason,
+		bool bSuppressNonLethalHitReaction = false,
+		bool bInterruptTarget = true
+	);
 
 	bool HasConsumedInteraction() const;
 

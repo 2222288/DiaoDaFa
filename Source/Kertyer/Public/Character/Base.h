@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
-#include "DataAsset/AttackDH.h"
+#include "Combat/CombatTypes.h"
 #include "Weapon/WeaponTypes.h"
 #include "DataAsset/CombatReactionAnimationData.h"
 #include "Base.generated.h"
@@ -62,6 +62,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Attributes", meta = (DisplayName = "治疗"))
 	void Treat(float HealAmount);
 
+	UFUNCTION(BlueprintCallable, Category = "Combat|Deflect", meta = (DisplayName = "开始弹刀"))
+	void StartDeflect();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Deflect", meta = (DisplayName = "结束弹刀"))
+	void EndDeflect();
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Deflect", meta = (DisplayName = "当前是否正在弹刀"))
+	bool IsDeflecting() const { return bIsDeflecting; }
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Reaction")
 	bool PlayCombatReaction(
 		ECombatReactionType ReactionType,
@@ -80,7 +89,39 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Reaction")
 	void PlayHitReaction();
 
+	// 攻击请求阶段尝试把本次攻击转换为格挡。
+// 成功返回 true，并通过 OutGuardDuration 返回格挡动画时长。
+	bool TryConvertAttackToGuard(
+		EAttackDirection GuardDirection,
+		float GuardRequestTime,
+		float& OutGuardDuration
+	);
 
+	// 播放战斗反应，并返回实际播放时长。
+	bool PlayCombatReactionAndGetLength(
+		ECombatReactionType ReactionType,
+		EWeaponContactResult ContactResult,
+		EAttackDirection Direction,
+		bool bSelfIsSlower,
+		bool bValidTimedResponse,
+		float& OutPlayedLength
+	);
+
+	// 对向格挡成功后，给下一次真正攻击加速。
+	void GrantNextAttackSpeedBonus(float PlayRateMultiplier);
+
+	// 消耗下一次攻击加速倍率。
+	float ConsumeNextAttackPlayRateModifier();
+
+	// 格挡抵消后，取消对方当前攻击。
+	void CancelCurrentAttackByGuard(AActor* GuardActor, const FString& Reason);
+
+	// 扣血但不播放普通 Hit 反应；死亡仍然播放 Death。
+	void ApplyDamageWithoutNonLethalHitReaction(
+		float DamageAmount,
+		AController* EventInstigator,
+		AActor* DamageCauser
+	);
 
 
 	/** 接收伤害并结算当前生命值。 */
@@ -102,6 +143,34 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Reaction")
 	TObjectPtr<UCombatReactionAnimationDataAsset> CombatReactionAnimationData = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Deflect", meta = (DisplayName = "是否正在弹刀"))
+	bool bIsDeflecting = false;
+
+	// 完美格挡后下一次攻击播放倍率。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Guard", meta = (DisplayName = "完美格挡后下次攻击速度倍率"))
+	float PerfectGuardNextAttackSpeedMultiplier = 1.25f;
+
+	// 攻击前自动格挡搜索半径。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Guard", meta = (DisplayName = "攻击前格挡检测半径"))
+	float PreAttackGuardSearchRadius = 800.0f;
+
+	// 等速判定容差。小于等于该时间差时，不算“我慢于对方”。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Guard", meta = (DisplayName = "等速判定容差"))
+	float EqualAttackTimeTolerance = 0.12f;
+
+	// 下一次攻击播放倍率。
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Guard", meta = (DisplayName = "下一次攻击速度倍率"))
+	float NextAttackPlayRateModifier = 1.0f;
+
+	// 下次非致命受伤是否跳过 Hit 动画。
+	bool bSuppressNextNonLethalHitReaction = false;
+
+	// 当前攻击被格挡取消时的角色专用回调；Hostile 用它清理攻击状态。
+	virtual void OnAttackCancelledByGuard(AActor* GuardActor, const FString& Reason);
+
+	// 查找当前攻击前格挡需要比较的对手。
+	ABase* FindPreAttackGuardOpponent() const;
 
 };
 

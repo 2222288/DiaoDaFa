@@ -46,11 +46,14 @@ FWeaponContactResolveOutput UWeaponContactResolver::ResolveWeaponContactDetailed
 {
 	FWeaponContactResolveOutput Output;
 
-	Output.SlowerSide = GetSlowerSide(Input.AttackTimeA, Input.AttackTimeB);
-	Output.FasterSide = GetFasterSide(Input.AttackTimeA, Input.AttackTimeB);
+	Output.EqualTimingTolerance = NormalizeEqualAttackTimeTolerance(Input.EqualAttackTimeTolerance);
+	Output.TimingRelation = GetTimingRelation(Input.AttackTimeA, Input.AttackTimeB, Output.EqualTimingTolerance);
+	Output.SlowerSide = GetSlowerSide(Input.AttackTimeA, Input.AttackTimeB, Output.EqualTimingTolerance);
+	Output.FasterSide = GetFasterSide(Input.AttackTimeA, Input.AttackTimeB, Output.EqualTimingTolerance);
 	Output.TimeDelta = FMath::Abs(Input.AttackTimeA - Input.AttackTimeB);
 	Output.ValidResponseWindow = GetValidResponseWindow(Input, Output.FasterSide);
-	Output.bIsValidTimedResponse = Output.TimeDelta <= Output.ValidResponseWindow;
+	Output.bIsEqualTiming = Output.TimingRelation == EAttackTimingRelation::Equal;
+	Output.bIsValidTimedResponse = Output.bIsEqualTiming || Output.TimeDelta <= Output.ValidResponseWindow;
 
 	const bool bAActive = IsActiveWeaponState(Input.StateA);
 	const bool bBActive = IsActiveWeaponState(Input.StateB);
@@ -81,11 +84,23 @@ FWeaponContactResolveOutput UWeaponContactResolver::ResolveWeaponContactDetailed
 
 	if (Input.DirectionA == EAttackDirection::None || Input.DirectionB == EAttackDirection::None)
 	{
-		Output.Result = EWeaponContactResult::Hit;
 		Output.DirectionRelation = EWeaponContactDirectionRelation::Invalid;
+
+		if (Output.bIsEqualTiming)
+		{
+			Output.Result = EWeaponContactResult::Deflect;
+			Output.AdvantageSide = EWeaponContactSide::Both;
+			Output.DamagedSide = EWeaponContactSide::None;
+			Output.bShouldDamageSlowerBody = false;
+			return Output;
+		}
+
+		Output.Result = EWeaponContactResult::Hit;
 		Output.DamagedSide = Output.SlowerSide;
 		Output.AdvantageSide = Output.FasterSide;
-		Output.bShouldDamageSlowerBody = Output.DamagedSide != EWeaponContactSide::None && Output.DamagedSide != EWeaponContactSide::Both;
+		Output.bShouldDamageSlowerBody =
+			Output.DamagedSide != EWeaponContactSide::None &&
+			Output.DamagedSide != EWeaponContactSide::Both;
 		return Output;
 	}
 
@@ -102,17 +117,30 @@ FWeaponContactResolveOutput UWeaponContactResolver::ResolveWeaponContactDetailed
 		Output.DirectionRelation = EWeaponContactDirectionRelation::NonOpposite;
 	}
 
-	// 后发方超过先发方响应窗口：视为响应无效，较慢方直接受到伤害。
+	// 速度一致：双方攻击动画继续；一旦武器碰撞，双方播放弹开。
+	if (Output.bIsEqualTiming)
+	{
+		Output.Result = EWeaponContactResult::Deflect;
+		Output.AdvantageSide = EWeaponContactSide::Both;
+		Output.DamagedSide = EWeaponContactSide::None;
+		Output.bShouldDamageSlowerBody = false;
+		return Output;
+	}
+
+	// 后发超过响应窗口：较慢方受伤。
 	if (!Output.bIsValidTimedResponse)
 	{
 		Output.Result = EWeaponContactResult::Hit;
 		Output.DamagedSide = Output.SlowerSide;
 		Output.AdvantageSide = Output.FasterSide;
-		Output.bShouldDamageSlowerBody = Output.DamagedSide != EWeaponContactSide::None && Output.DamagedSide != EWeaponContactSide::Both;
+		Output.bShouldDamageSlowerBody =
+			Output.DamagedSide != EWeaponContactSide::None &&
+			Output.DamagedSide != EWeaponContactSide::Both;
 		return Output;
 	}
 
-	// 对向攻击：较慢发起方获得优势；暂不做优势逻辑，只打印日志，反馈统一走 Clash。
+	// 只要后发方慢于对方且仍在有效响应窗口内，就视为进入格挡。
+	// 方向只决定此次攻击效果，不决定是否触发 Guard。
 	if (Output.DirectionRelation == EWeaponContactDirectionRelation::Opposite)
 	{
 		Output.Result = EWeaponContactResult::Clash;
@@ -122,24 +150,25 @@ FWeaponContactResolveOutput UWeaponContactResolver::ResolveWeaponContactDetailed
 		return Output;
 	}
 
-	// 较对向攻击：双方平衡，保持武器反馈，不造成身体伤害。
 	if (Output.DirectionRelation == EWeaponContactDirectionRelation::NearOpposite)
 	{
 		Output.Result = EWeaponContactResult::Clash;
-		Output.AdvantageSide = EWeaponContactSide::Both;
+		Output.AdvantageSide = Output.SlowerSide;
 		Output.DamagedSide = EWeaponContactSide::None;
 		Output.bShouldDamageSlowerBody = false;
 		return Output;
 	}
 
-	// 非对向攻击：较慢方直接受到伤害。
-	Output.Result = EWeaponContactResult::Hit;
+	// 非对向：仍然是格挡动作，但效果失败，较慢方吃满伤害。
+	Output.Result = EWeaponContactResult::Clash;
 	Output.AdvantageSide = Output.FasterSide;
 	Output.DamagedSide = Output.SlowerSide;
-	Output.bShouldDamageSlowerBody = Output.DamagedSide != EWeaponContactSide::None && Output.DamagedSide != EWeaponContactSide::Both;
+	Output.bShouldDamageSlowerBody =
+		Output.DamagedSide != EWeaponContactSide::None &&
+		Output.DamagedSide != EWeaponContactSide::Both;
+
 	return Output;
 }
-
 EWeaponContactResult UWeaponContactResolver::ResolveWeaponContact(const AWeaponBase* WeaponA, const AWeaponBase* WeaponB)
 {
 	return ResolveWeaponContactDetailed(WeaponA, WeaponB).Result;
@@ -205,54 +234,109 @@ int32 UWeaponContactResolver::GetCircularDirectionDelta(EAttackDirection A, EAtt
 	return FMath::Min(RawDelta, 8 - RawDelta);
 }
 
-EWeaponContactSide UWeaponContactResolver::GetSlowerSide(float AttackTimeA, float AttackTimeB)
+EAttackTimingRelation UWeaponContactResolver::GetTimingRelation(
+	float AttackTimeA,
+	float AttackTimeB,
+	float EqualAttackTimeTolerance
+)
 {
-	if (AttackTimeA < 0.0f && AttackTimeB < 0.0f)
+	const float Tolerance = NormalizeEqualAttackTimeTolerance(EqualAttackTimeTolerance);
+
+	if (AttackTimeA < 0.0f || AttackTimeB < 0.0f)
 	{
-		return EWeaponContactSide::None;
+		return EAttackTimingRelation::Invalid;
 	}
 
-	if (AttackTimeA < 0.0f)
+	if (FMath::Abs(AttackTimeA - AttackTimeB) <= Tolerance)
 	{
-		return EWeaponContactSide::WeaponA;
+		return EAttackTimingRelation::Equal;
 	}
 
-	if (AttackTimeB < 0.0f)
-	{
-		return EWeaponContactSide::WeaponB;
-	}
-
-	if (FMath::IsNearlyEqual(AttackTimeA, AttackTimeB, KINDA_SMALL_NUMBER))
-	{
-		return EWeaponContactSide::Both;
-	}
-
-	return AttackTimeA > AttackTimeB ? EWeaponContactSide::WeaponA : EWeaponContactSide::WeaponB;
+	return AttackTimeA < AttackTimeB
+		? EAttackTimingRelation::AIsFaster
+		: EAttackTimingRelation::BIsFaster;
 }
 
-EWeaponContactSide UWeaponContactResolver::GetFasterSide(float AttackTimeA, float AttackTimeB)
+EWeaponContactSide UWeaponContactResolver::GetSlowerSide(
+	float AttackTimeA,
+	float AttackTimeB,
+	float EqualAttackTimeTolerance
+)
 {
-	if (AttackTimeA < 0.0f && AttackTimeB < 0.0f)
+	const EAttackTimingRelation TimingRelation =
+		GetTimingRelation(AttackTimeA, AttackTimeB, EqualAttackTimeTolerance);
+
+	switch (TimingRelation)
 	{
+	case EAttackTimingRelation::AIsFaster:
+		return EWeaponContactSide::WeaponB;
+
+	case EAttackTimingRelation::BIsFaster:
+		return EWeaponContactSide::WeaponA;
+
+	case EAttackTimingRelation::Equal:
+		return EWeaponContactSide::Both;
+
+	case EAttackTimingRelation::Invalid:
+	default:
+		if (AttackTimeA < 0.0f && AttackTimeB < 0.0f)
+		{
+			return EWeaponContactSide::None;
+		}
+
+		if (AttackTimeA < 0.0f)
+		{
+			return EWeaponContactSide::WeaponA;
+		}
+
+		if (AttackTimeB < 0.0f)
+		{
+			return EWeaponContactSide::WeaponB;
+		}
+
 		return EWeaponContactSide::None;
 	}
+}
 
-	if (AttackTimeA < 0.0f)
-	{
-		return EWeaponContactSide::WeaponB;
-	}
+EWeaponContactSide UWeaponContactResolver::GetFasterSide(
+	float AttackTimeA,
+	float AttackTimeB,
+	float EqualAttackTimeTolerance
+)
+{
+	const EAttackTimingRelation TimingRelation =
+		GetTimingRelation(AttackTimeA, AttackTimeB, EqualAttackTimeTolerance);
 
-	if (AttackTimeB < 0.0f)
+	switch (TimingRelation)
 	{
+	case EAttackTimingRelation::AIsFaster:
 		return EWeaponContactSide::WeaponA;
-	}
 
-	if (FMath::IsNearlyEqual(AttackTimeA, AttackTimeB, KINDA_SMALL_NUMBER))
-	{
+	case EAttackTimingRelation::BIsFaster:
+		return EWeaponContactSide::WeaponB;
+
+	case EAttackTimingRelation::Equal:
 		return EWeaponContactSide::Both;
-	}
 
-	return AttackTimeA < AttackTimeB ? EWeaponContactSide::WeaponA : EWeaponContactSide::WeaponB;
+	case EAttackTimingRelation::Invalid:
+	default:
+		if (AttackTimeA < 0.0f && AttackTimeB < 0.0f)
+		{
+			return EWeaponContactSide::None;
+		}
+
+		if (AttackTimeA < 0.0f)
+		{
+			return EWeaponContactSide::WeaponB;
+		}
+
+		if (AttackTimeB < 0.0f)
+		{
+			return EWeaponContactSide::WeaponA;
+		}
+
+		return EWeaponContactSide::None;
+	}
 }
 
 float UWeaponContactResolver::GetValidResponseWindow(const FWeaponContactResolveInput& Input, EWeaponContactSide FasterSide)
@@ -268,4 +352,9 @@ float UWeaponContactResolver::GetValidResponseWindow(const FWeaponContactResolve
 	}
 
 	return NormalizeWindow(Input.ResponseWindowA);
+}
+
+float UWeaponContactResolver::NormalizeEqualAttackTimeTolerance(float EqualAttackTimeTolerance)
+{
+	return EqualAttackTimeTolerance > 0.0f ? EqualAttackTimeTolerance : 0.12f;
 }

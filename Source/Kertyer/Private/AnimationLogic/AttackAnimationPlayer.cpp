@@ -1,8 +1,8 @@
-#include "AnimationLogic/AttackAnimationPlayer.h"
+﻿#include "AnimationLogic/AttackAnimationPlayer.h"
 
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "DataAsset/AttackDH.h"
+#include "DataAsset/AttackMoveDataAsset.h"
 #include "DataAsset/CombatReactionAnimationData.h"
 #include "GameFramework/Character.h"
 
@@ -30,14 +30,14 @@ UAnimInstance* FAttackAnimationPlayer::ResolveAnimInstance(AActor* Owner)
 
 FAttackAnimationPlayResult FAttackAnimationPlayer::PlayAttackMontage(
 	AActor* Owner,
-	const FAttack& AttackRow,
+	const FAttackMoveData& AttackData,
 	float PlayRate
 )
 {
 	return PlayRawMontage(
 		Owner,
-		AttackRow.AttackMontage.Get(),
-		AttackRow.MontageSection,
+		AttackData.AttackMontage.Get(),
+		AttackData.MontageSection,
 		PlayRate
 	);
 }
