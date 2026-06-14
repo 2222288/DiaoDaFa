@@ -1,7 +1,7 @@
 ﻿#include "AnimInstance/ANS_AttackDamageWindow.h"
 
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "GameFramework/Actor.h"
 
 void UANS_AttackDamageWindow::NotifyBegin(
@@ -20,7 +20,7 @@ void UANS_AttackDamageWindow::NotifyBegin(
 		return;
 	}
 
-	UAttackComponent* AttackComp = Owner->FindComponentByClass<UAttackComponent>();
+	UCombatComponent* AttackComp = Owner->FindComponentByClass<UCombatComponent>();
 	if (!AttackComp)
 	{
 		return;
@@ -46,7 +46,7 @@ void UANS_AttackDamageWindow::NotifyEnd(
 		return;
 	}
 
-	UAttackComponent* AttackComp = Owner->FindComponentByClass<UAttackComponent>();
+	UCombatComponent* AttackComp = Owner->FindComponentByClass<UCombatComponent>();
 	if (!AttackComp)
 	{
 		return;

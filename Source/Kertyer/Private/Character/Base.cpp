@@ -7,7 +7,7 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Kismet/GameplayStatics.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "AnimationLogic/AttackAnimationPlayer.h"
 #include "DataAsset/CombatReactionAnimationData.h"
 #include "Character/Hostile.h"
@@ -296,9 +296,9 @@ void ABase::InterruptCurrentAttackByBodyHit(AActor* DamageCauser)
         CurrentWeapon->ForceStopWeaponInteraction(TEXT("身体被武器命中，本次攻击被打断"));
     }
 
-    if (UAttackComponent* AttackComponent = FindComponentByClass<UAttackComponent>())
+    if (UCombatComponent* CombatComponent = FindComponentByClass<UCombatComponent>())
     {
-        AttackComponent->InterruptCurrentAttack();
+        CombatComponent->InterruptCurrentAttack();
     }
 
     UE_LOG(LogTemp, Warning,
@@ -497,11 +497,11 @@ void ABase::StartDeflect()
         CurrentWeapon->ForceStopWeaponInteraction(TEXT("进入弹刀状态，停止当前武器交互"));
     }
 
-    // 如果这个角色有 AttackComponent，就同步打断。
+    // 如果这个角色有 CombatComponent，就同步打断。
     // 玩家有，敌人没有也没关系。
-    if (UAttackComponent* FoundAttackComponent = FindComponentByClass<UAttackComponent>())
+    if (UCombatComponent* FoundCombatComponent = FindComponentByClass<UCombatComponent>())
     {
-        FoundAttackComponent->InterruptCurrentAttack();
+        FoundCombatComponent->InterruptCurrentAttack();
     }
 
     UE_LOG(
@@ -741,9 +741,9 @@ void ABase::CancelCurrentAttackByGuard(AActor* GuardActor, const FString& Reason
 
     FAttackAnimationPlayer::StopAttackMontage(this, nullptr, 0.10f);
 
-    if (UAttackComponent* AttackComponent = FindComponentByClass<UAttackComponent>())
+    if (UCombatComponent* CombatComponent = FindComponentByClass<UCombatComponent>())
     {
-        AttackComponent->InterruptCurrentAttack();
+        CombatComponent->InterruptCurrentAttack();
     }
 
     OnAttackCancelledByGuard(GuardActor, Reason);

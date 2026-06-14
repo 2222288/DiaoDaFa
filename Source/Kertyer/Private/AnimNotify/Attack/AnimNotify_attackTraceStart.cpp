@@ -1,6 +1,6 @@
 #include "AnimNotify/Attack/AnimNotify_AttackTraceStart.h"
 #include "Character/Base.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 
 void UAnimNotify_AttackTraceStart::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
@@ -18,9 +18,9 @@ void UAnimNotify_AttackTraceStart::Notify(USkeletalMeshComponent* MeshComp, UAni
         return;
     }
 
-    if (UAttackComponent* AttackComponent = Owner->FindComponentByClass<UAttackComponent>())
+    if (UCombatComponent* CombatComponent = Owner->FindComponentByClass<UCombatComponent>())
     {
-        AttackComponent->EnableWeaponTrace();
+        CombatComponent->EnableWeaponTrace();
         return;
     }
 

@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Character/Base.h"
 #include "InputActionValue.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "My.generated.h"
 
 class UInputMappingContext;
@@ -46,7 +46,7 @@ public:
 
     //攻击组件
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-    TObjectPtr<class UAttackComponent> Attack;
+    TObjectPtr<class UCombatComponent> Attack;
 
     //左攻击键
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")

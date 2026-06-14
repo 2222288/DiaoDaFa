@@ -1,5 +1,5 @@
 #include "AnimNotify/Block/AnimNotify_BlockStart.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 
 void UAnimNotify_BlockStart::Notify(
@@ -21,8 +21,8 @@ void UAnimNotify_BlockStart::Notify(
 		return;
 	}
 
-	if (UAttackComponent* AttackComponent = Owner->FindComponentByClass<UAttackComponent>())
+	if (UCombatComponent* CombatComponent = Owner->FindComponentByClass<UCombatComponent>())
 	{
-		AttackComponent->StartBlock();
+		CombatComponent->StartBlock();
 	}
 }

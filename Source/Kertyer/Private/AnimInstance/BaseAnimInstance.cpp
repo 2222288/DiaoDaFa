@@ -4,7 +4,7 @@
 #include "AnimInstance/BaseAnimInstance.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 
 
@@ -18,7 +18,7 @@ void UBaseAnimInstance::NativeInitializeAnimation()
     if (OwnerCharacter)
     {
         MovementComponent = OwnerCharacter->GetCharacterMovement();
-        AttackComponent = OwnerCharacter->FindComponentByClass<UAttackComponent>();
+        CombatComponent = OwnerCharacter->FindComponentByClass<UCombatComponent>();
     }
 
 }
@@ -62,12 +62,12 @@ void UBaseAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
         Direction = 0.0f;
     }
 
-    if (AttackComponent)
+    if (CombatComponent)
     {
-        AttackState = AttackComponent->GetAttackState();
-        AttackDirection = AttackComponent->GetCurrentDirection();
-        bIsAttackActive = AttackComponent->IsAttackActive();
-        AttackTriggerCounter = AttackComponent->GetAttackTriggerCounter();
+        AttackState = CombatComponent->GetAttackState();
+        AttackDirection = CombatComponent->GetCurrentDirection();
+        bIsAttackActive = CombatComponent->IsAttackActive();
+        AttackTriggerCounter = CombatComponent->GetAttackTriggerCounter();
 
         bAttackTriggered = AttackTriggerCounter != LastAttackTriggerCounter;
         if (bAttackTriggered)

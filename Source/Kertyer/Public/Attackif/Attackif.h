@@ -48,7 +48,7 @@ struct FTrackResult
 using FTrajectoryResult = FTrackResult;
 
 // 鼠标输入到轨迹采样的缓存器。
-// AttackComponent 不再自己维护 RawPoints/AccumulatedMousePosition。
+// CombatComponent 不再自己维护 RawPoints/AccumulatedMousePosition。
 class FTrackInputSampler
 {
 public:

@@ -7,7 +7,7 @@
 #include "Combat/CombatTypes.h"
 #include "BaseAnimInstance.generated.h"
 
-class UAttackComponent;
+class UCombatComponent;
 
 /**
  * */
@@ -48,7 +48,7 @@ public:
 
     // 攻击组件引用
     UPROPERTY(BlueprintReadOnly, Category = "References")
-    TObjectPtr<UAttackComponent> AttackComponent;
+    TObjectPtr<UCombatComponent> CombatComponent;
 
     // 攻击状态
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")

@@ -237,16 +237,6 @@ void AWeaponBase::EnableWeaponTrace()
 
 	ResetSocketTracePositions();
 
-	UE_LOG(LogTemp, Warning,
-		TEXT("[攻击交互][判定窗口打开] 持有者=%s 武器=%s 方向=%s 攻击ID=%s 最终伤害=%.2f 响应窗口=%.3f Socket数量=%d 半径=%.2f"),
-		*SafeObjectName(CurrentHolder),
-		*GetName(),
-		DirectionToText(CurrentAttackDirection),
-		*SafeNameText(CurrentAttackData.AttackType),
-		GetCurrentAttackDamage(),
-		CurrentAttackData.CounterAttackValidWindow,
-		BladeSocketNames.Num(),
-		TraceSphereRadius);
 }
 
 void AWeaponBase::DisableWeaponTrace()

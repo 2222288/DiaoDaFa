@@ -18,8 +18,6 @@ struct FAttackScoreConfig
 class KERTYER_API AttackScore
 {
 public:
-    AttackScore();
-    ~AttackScore();
 
     static float CalculateTrackScore(
         const FTrajectoryResult& Trajectory,

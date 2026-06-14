@@ -1,12 +1,5 @@
 #include "Attackif/AttackScore.h"
 
-AttackScore::AttackScore()
-{
-}
-
-AttackScore::~AttackScore()
-{
-}
 
 float AttackScore::CalculateTrackScore(
     const FTrajectoryResult& Trajectory,

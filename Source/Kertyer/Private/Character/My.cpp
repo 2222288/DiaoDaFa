@@ -10,13 +10,13 @@
 #include "EnhancedInputSubsystems.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
-#include "Components/AttackComponent.h"
+#include "Components/CombatComponent.h"
 #include "Components/LockOn.h"
 
 AMy::AMy()
 {
     Lock = CreateDefaultSubobject<ULockOn>(TEXT("LockOn"));
-    Attack = CreateDefaultSubobject<UAttackComponent>(TEXT("Attack"));
+    Attack = CreateDefaultSubobject<UCombatComponent>(TEXT("Attack"));
 
 }
 
