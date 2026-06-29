@@ -1,5 +1,47 @@
 #include "Attackif/Attackif.h"
 
+namespace
+{
+    TArray<FTrackSample> UniformlyLimitSamples(
+        const TArray<FTrackSample>& Samples,
+        int32 MaxSampleCount)
+    {
+        const int32 SafeMaxSampleCount = FMath::Max(2, MaxSampleCount);
+        if (Samples.Num() <= SafeMaxSampleCount)
+        {
+            return Samples;
+        }
+
+        TArray<FTrackSample> Limited;
+        Limited.Reserve(SafeMaxSampleCount);
+
+        const float LastIndex = static_cast<float>(Samples.Num() - 1);
+        for (int32 OutputIndex = 0; OutputIndex < SafeMaxSampleCount; ++OutputIndex)
+        {
+            const float Alpha = static_cast<float>(OutputIndex) / static_cast<float>(SafeMaxSampleCount - 1);
+            const int32 SourceIndex = FMath::Clamp(
+                FMath::RoundToInt(Alpha * LastIndex),
+                0,
+                Samples.Num() - 1);
+
+            if (Limited.IsEmpty() || Limited.Last().TimeSeconds != Samples[SourceIndex].TimeSeconds ||
+                !Limited.Last().Position.Equals(Samples[SourceIndex].Position))
+            {
+                Limited.Add(Samples[SourceIndex]);
+            }
+        }
+
+        if (Limited.Num() < 2)
+        {
+            Limited.Reset();
+            Limited.Add(Samples[0]);
+            Limited.Add(Samples.Last());
+        }
+
+        return Limited;
+    }
+}
+
 void FTrackInputSampler::Reset()
 {
     TrackSamples.Empty();
@@ -9,10 +51,44 @@ void FTrackInputSampler::Reset()
 bool FTrackInputSampler::PushInput(
     const FVector2D& Input,
     float CurrentTime,
-    float MinSampleDistance)
+    float MinSampleDistance,
+    int32 MaxSampleCount,
+    float MaxDurationSeconds)
 {
     const float SafeMinSampleDistance = FMath::Max(0.0f, MinSampleDistance);
     const float SafeMinSampleDistanceSq = FMath::Square(SafeMinSampleDistance);
+    const int32 SafeMaxSampleCount = FMath::Max(2, MaxSampleCount);
+    const float SafeMaxDurationSeconds = FMath::Max(0.05f, MaxDurationSeconds);
+
+    bool bSamplesChanged = false;
+
+    // 先按时间窗口裁剪。若整段都过期则全部清空；否则保留窗口边界前的一个锚点。
+    if (!TrackSamples.IsEmpty())
+    {
+        const float EarliestAllowedTime = CurrentTime - SafeMaxDurationSeconds;
+
+        if (TrackSamples.Last().TimeSeconds < EarliestAllowedTime)
+        {
+            TrackSamples.Reset();
+            bSamplesChanged = true;
+        }
+        else
+        {
+            int32 FirstInsideWindow = 0;
+            while (FirstInsideWindow < TrackSamples.Num() &&
+                TrackSamples[FirstInsideWindow].TimeSeconds < EarliestAllowedTime)
+            {
+                ++FirstInsideWindow;
+            }
+
+            const int32 RemoveCount = FMath::Max(0, FirstInsideWindow - 1);
+            if (RemoveCount > 0)
+            {
+                TrackSamples.RemoveAt(0, RemoveCount, EAllowShrinking::No);
+                bSamplesChanged = true;
+            }
+        }
+    }
 
     // 每次采样开始时固定一个局部原点，避免第一段位移被丢掉。
     if (TrackSamples.IsEmpty())
@@ -21,6 +97,7 @@ bool FTrackInputSampler::PushInput(
         Origin.Position = AccumulatedPosition;
         Origin.TimeSeconds = CurrentTime;
         TrackSamples.Add(Origin);
+        bSamplesChanged = true;
     }
 
     AccumulatedPosition += Input;
@@ -29,13 +106,21 @@ bool FTrackInputSampler::PushInput(
     Sample.Position = AccumulatedPosition;
     Sample.TimeSeconds = CurrentTime;
 
-    if ((Sample.Position - TrackSamples.Last().Position).SizeSquared() < SafeMinSampleDistanceSq)
+    if ((Sample.Position - TrackSamples.Last().Position).SizeSquared() >= SafeMinSampleDistanceSq)
     {
-        return false;
+        TrackSamples.Add(Sample);
+        bSamplesChanged = true;
     }
 
-    TrackSamples.Add(Sample);
-    return true;
+    // 一次批量移除，避免 while + RemoveAt(0) 导致反复搬移数组。
+    const int32 OverflowCount = TrackSamples.Num() - SafeMaxSampleCount;
+    if (OverflowCount > 0)
+    {
+        TrackSamples.RemoveAt(0, OverflowCount, EAllowShrinking::No);
+        bSamplesChanged = true;
+    }
+
+    return bSamplesChanged;
 }
 
 FTrajectoryResult FTrackPreprocessUtils::AnalyzeTrajectory(
@@ -48,10 +133,12 @@ FTrajectoryResult FTrackPreprocessUtils::AnalyzeTrajectory(
         return Result;
     }
 
-    const TArray<FTrackSample> ProcessedPoints = PreprocessTrajectory(RawSamples, Config);
+    TArray<FTrackSample> ProcessedPoints = PreprocessTrajectory(RawSamples, Config);
+    ProcessedPoints = UniformlyLimitSamples(ProcessedPoints, Config.MaxProcessedSampleCount);
+
     Result = CalculateTrajectoryFeatures(ProcessedPoints, Config);
     Result.Direction = Direction(Result);
-    Result.ProcessedSamples = ProcessedPoints;
+    Result.ProcessedSamples = MoveTemp(ProcessedPoints);
     return Result;
 }
 

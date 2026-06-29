@@ -1,36 +1,58 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
+#include "Attackif/AttackValid.h"
 #include "Combat/CombatTypes.h"
-#include "Attackif/AttackValid.h" 
-#include "Math/UnrealMathUtility.h"
-#include "Math/Vector2D.h"
 
+class FCombatStatusSwitch;
+class UAttackMoveDataAsset;
+struct FAttackMoveData;
 
-class FCombatSampling
+/**
+ * æˆ˜æ–—é‡‡æ ·æ¨¡å—ï¼š
+ * åªè´Ÿè´£é¼ æ ‡è½¨è¿¹é‡‡æ ·ã€æ”»å‡»è¾“å…¥æœ‰æ•ˆæ€§åˆ¤æ–­å’Œå¾…å®šæ”»å‡»ç¼“å­˜ã€‚
+ */
+class KERTYER_API FCombatSampling
 {
 public:
-	/** »º´æÊó±êÊäÈë£¬²¢½»¸ø AttackValid ÅĞ¶ÏÊÇ·ñĞÎ³ÉÒ»´ÎÓĞĞ§¹¥»÷¡£ */
-	void CacheMouseInput(const FVector2D& Input, float CurrentTime);
+	void BeginAttackSampling(AActor* Owner, FCombatStatusSwitch& Status, float CurrentTime);
 
-	/** °´ÏÂ¹¥»÷¼üÊ±¿ªÊ¼²ÉÑù¹¥»÷¹ì¼£¡£ */
-	void BeginAttackSampling(float CurrentTime);
+	void EndAttackSampling(UWorld* World, FCombatStatusSwitch& Status);
 
-	/** ËÉ¿ª¹¥»÷¼üÊ±½áÊø²ÉÑù²¢ÇåÀíÊäÈë»º´æ¡£ */
-	void EndAttackSampling();
+	bool CacheMouseInput(
+		const FVector2D& Input,
+		float CurrentTime,
+		FCombatStatusSwitch& Status,
+		EAttackDirection& OutDirection,
+		float& OutTrackScore
+	);
 
-	/** Êó±êÒÆ¶¯²ÉÑùµÄ×îĞ¡ãĞÖµ£¬µÍÓÚ¸Ã¾àÀëµÄÊäÈë»á±»¹ıÂË¡£ */
-	float MinSampleDistance = 8.0f;
-
-	/** ÇåÀíµ±Ç°ÊäÈë¹ì¼£»º´æ¡£ */
 	void ClearSamplingBuffer();
 
-	/** ÇåÀí´ı¶¨¹¥»÷Êı¾İ¡£ */
 	void ClearPendingAttack();
 
-	/** ´ı¶¨¹¥»÷¹ì¼£ÆÀ·Ö¡£ */
+	void QueuePendingAttack(EAttackDirection Direction, float TrackScore);
+
+	bool HasPendingAttack() const { return bHasPendingAttack; }
+
+	EAttackDirection GetPendingDirection() const { return PendingDirection; }
+
+	float GetPendingTrackScore() const { return PendingTrackScore; }
+
+	const FAttackMoveData* FindAttackMoveByDirection(
+		const UAttackMoveDataAsset* AttackMoveDataAsset,
+		EAttackDirection InDirection
+	) const;
+
+public:
+	float MinSampleDistance = 8.0f;
+
+private:
+	FAttackValid AttackValid;
+
+	bool bHasPendingAttack = false;
+
+	EAttackDirection PendingDirection = EAttackDirection::None;
+
 	float PendingTrackScore = 0.0f;
-
-
-
 };

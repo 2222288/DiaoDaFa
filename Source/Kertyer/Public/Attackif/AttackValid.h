@@ -103,6 +103,7 @@ private:
 private:
     FAttackValidConfig Config;
     FTrackInputSampler Sampler;
+    FTrajectoryResult CachedTrajectory;
     TArray<FMotionFrame> MotionFrames;
     float LastInputTime = -1.0f;
 };

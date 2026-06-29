@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "AnimInstance/BaseAnimInstance.h"
@@ -14,7 +14,7 @@ void UBaseAnimInstance::NativeInitializeAnimation()
 
     OwnerCharacter = Cast<ACharacter>(TryGetPawnOwner());
 
-	// »º´æ×é¼ş
+	// ç¼“å­˜ç»„ä»¶
     if (OwnerCharacter)
     {
         MovementComponent = OwnerCharacter->GetCharacterMovement();
@@ -27,7 +27,7 @@ void UBaseAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
     Super::NativeUpdateAnimation(DeltaSeconds);
 
-    // ·ÀÓùĞÔ±à³Ì£ºÈç¹û½ÇÉ«»¹Ã»¼ÓÔØ³öÀ´£¬¾Í±ğÏ¹Ëã
+    // é˜²å¾¡æ€§ç¼–ç¨‹ï¼šå¦‚æœè§’è‰²è¿˜æ²¡åŠ è½½å‡ºæ¥ï¼Œå°±åˆ«çç®—
     if (!OwnerCharacter || !MovementComponent)
     {
         return;
@@ -35,26 +35,26 @@ void UBaseAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 
 
-    // 1¼ÆËãµØÃæËÙ¶È
+    // 1è®¡ç®—åœ°é¢é€Ÿåº¦
     Velocity = OwnerCharacter->GetVelocity();
     FVector LateralVelocity = FVector(Velocity.X, Velocity.Y, 0.0f);
     GroundSpeed = LateralVelocity.Size(); // VSizeXY
 
-    // ÅĞ¶ÏÊÇ·ñÒÆ¶¯
+    // åˆ¤æ–­æ˜¯å¦ç§»åŠ¨
     bIsMoving = GroundSpeed > 3.0f;
 
-    // ÅĞ¶ÏÊÇ·ñÔÚ¿ÕÖĞ
+    // åˆ¤æ–­æ˜¯å¦åœ¨ç©ºä¸­
     bIsFalling = MovementComponent->IsFalling();
 
     if (bIsMoving)
     {
-        // »ñÈ¡½ÇÉ«µ±Ç°µÄĞı×ª³¯Ïò
+        // è·å–è§’è‰²å½“å‰çš„æ—‹è½¬æœå‘
         FRotator ActorRotation = OwnerCharacter->GetActorRotation();
 
-        // °ÑÊÀ½çËÙ¶ÈÏòÁ¿£¬ÄæÏòĞı×ª»Ø½ÇÉ«µÄ¾Ö²¿×ø±êÏµ
+        // æŠŠä¸–ç•Œé€Ÿåº¦å‘é‡ï¼Œé€†å‘æ—‹è½¬å›è§’è‰²çš„å±€éƒ¨åæ ‡ç³»
         FVector LocalVelocity = ActorRotation.UnrotateVector(Velocity);
 
-        //Ö±½ÓÌáÈ¡Õâ¸ö¾Ö²¿ÏòÁ¿µÄ·½Ïò½Ç (Yaw)
+        //ç›´æ¥æå–è¿™ä¸ªå±€éƒ¨å‘é‡çš„æ–¹å‘è§’ (Yaw)
         Direction = LocalVelocity.ToOrientationRotator().Yaw;
     }
     else

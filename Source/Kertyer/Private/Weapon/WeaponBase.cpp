@@ -1,14 +1,11 @@
-﻿#include "Weapon/WeaponBase.h"
-#include "Weapon/WeaponContactResolver.h"
-#include "Character/Base.h"
+#include "Weapon/WeaponBase.h"
 
+#include "Character/Base.h"
 #include "Components/BoxComponent.h"
-#include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "DrawDebugHelpers.h"
-#include "Engine/World.h"
-#include "Kismet/GameplayStatics.h"
+#include "Components/WeaponInteractionComponent.h"
+#include "Components/WeaponTraceComponent.h"
 
 namespace
 {
@@ -44,43 +41,6 @@ namespace
 		}
 	}
 
-	const TCHAR* ContactResultToText(EWeaponContactResult Result)
-	{
-		switch (Result)
-		{
-		case EWeaponContactResult::Clash: return TEXT("武器反馈");
-		case EWeaponContactResult::Deflect: return TEXT("偏斜");
-		case EWeaponContactResult::Interrupt: return TEXT("打断");
-		case EWeaponContactResult::Hit: return TEXT("造成伤害");
-		case EWeaponContactResult::Ignore: return TEXT("忽略");
-		default: return TEXT("未知");
-		}
-	}
-
-	const TCHAR* RelationToText(EWeaponContactDirectionRelation Relation)
-	{
-		switch (Relation)
-		{
-		case EWeaponContactDirectionRelation::Invalid: return TEXT("无效");
-		case EWeaponContactDirectionRelation::Opposite: return TEXT("对向攻击");
-		case EWeaponContactDirectionRelation::NearOpposite: return TEXT("较对向攻击");
-		case EWeaponContactDirectionRelation::NonOpposite: return TEXT("非对向攻击");
-		default: return TEXT("未知");
-		}
-	}
-
-	const TCHAR* SideToText(EWeaponContactSide Side)
-	{
-		switch (Side)
-		{
-		case EWeaponContactSide::None: return TEXT("无");
-		case EWeaponContactSide::WeaponA: return TEXT("A方");
-		case EWeaponContactSide::WeaponB: return TEXT("B方");
-		case EWeaponContactSide::Both: return TEXT("双方");
-		default: return TEXT("未知");
-		}
-	}
-
 	FString SafeObjectName(const UObject* Object)
 	{
 		return IsValid(Object) ? Object->GetName() : TEXT("无");
@@ -95,41 +55,11 @@ namespace
 	{
 		return Window > 0.0f ? Window : DefaultCounterAttackWindow;
 	}
-
-	AWeaponBase* FindWeaponFromHit(const FHitResult& Hit)
-	{
-		if (AWeaponBase* Weapon = Cast<AWeaponBase>(Hit.GetActor()))
-		{
-			return Weapon;
-		}
-
-		if (const UPrimitiveComponent* HitComponent = Hit.GetComponent())
-		{
-			return Cast<AWeaponBase>(HitComponent->GetOwner());
-		}
-
-		return nullptr;
-	}
-
-	ABase* FindBodyFromHit(const FHitResult& Hit)
-	{
-		if (ABase* Body = Cast<ABase>(Hit.GetActor()))
-		{
-			return Body;
-		}
-
-		if (const UPrimitiveComponent* HitComponent = Hit.GetComponent())
-		{
-			return Cast<ABase>(HitComponent->GetOwner());
-		}
-
-		return nullptr;
-	}
 }
 
 AWeaponBase::AWeaponBase()
 {
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
@@ -143,13 +73,24 @@ AWeaponBase::AWeaponBase()
 	WeaponCollision->SetupAttachment(WeaponMesh);
 	WeaponCollision->SetBoxExtent(FVector(8.0f, 4.0f, 60.0f));
 	WeaponCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	WeaponCollision->SetGenerateOverlapEvents(true);
-	WeaponCollision->SetCollisionObjectType(ECC_WorldDynamic);
-	WeaponCollision->SetCollisionResponseToAllChannels(ECR_Overlap);
+	WeaponCollision->SetGenerateOverlapEvents(false);
+	WeaponCollision->SetCollisionObjectType(WeaponObjectChannel.GetValue());
+	WeaponCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
+	WeaponCollision->SetCollisionResponseToChannel(
+		WeaponObjectChannel.GetValue(),
+		ECR_Overlap
+	);
+	WeaponCollision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	WeaponCollision->SetSimulatePhysics(false);
 	WeaponCollision->SetEnableGravity(false);
 
+	WeaponTraceComponent =
+		CreateDefaultSubobject<UWeaponTraceComponent>(TEXT("WeaponTraceComponent"));
+	WeaponInteractionComponent =
+		CreateDefaultSubobject<UWeaponInteractionComponent>(TEXT("WeaponInteractionComponent"));
+
 	BladeSocketNames = { TEXT("Blade_Base"), TEXT("Blade_Mid"), TEXT("Blade_Tip") };
+	WeaponTraceObjectChannels = { ECC_Pawn };
 }
 
 void AWeaponBase::BeginPlay()
@@ -157,20 +98,48 @@ void AWeaponBase::BeginPlay()
 	Super::BeginPlay();
 
 	CurrentWeaponState = EWeaponState::Idle;
-	bIsTracing = false;
-	bHasResolvedInteractionThisTrace = false;
-	ConsumedActorThisTrace.Reset();
+	ConfigureWeaponCollision();
 
-	ResetSocketTracePositions();
+	if (WeaponInteractionComponent)
+	{
+		WeaponInteractionComponent->ResetForNewAttack();
+	}
+
+	if (WeaponTraceComponent && WeaponInteractionComponent)
+	{
+		WeaponTraceComponent->OnWeaponTraceHits.AddUObject(
+			WeaponInteractionComponent.Get(),
+			&UWeaponInteractionComponent::HandleTraceHits
+		);
+	}
 }
 
-void AWeaponBase::Tick(float DeltaSeconds)
+void AWeaponBase::ConfigureWeaponCollision()
 {
-	Super::Tick(DeltaSeconds);
-
-	if (bIsTracing && !HasConsumedInteraction())
+	if (!WeaponCollision)
 	{
-		PerformSocketSweeps(DeltaSeconds);
+		return;
+	}
+
+	WeaponCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	WeaponCollision->SetGenerateOverlapEvents(false);
+	WeaponCollision->SetCollisionObjectType(WeaponObjectChannel.GetValue());
+	WeaponCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
+
+	// 允许武器之间产生查询结果。
+	WeaponCollision->SetCollisionResponseToChannel(
+		WeaponObjectChannel.GetValue(),
+		ECR_Overlap
+	);
+
+	// 只对明确配置的可受击对象通道响应。
+	for (const TEnumAsByte<ECollisionChannel> ObjectChannel
+		: WeaponTraceObjectChannels)
+	{
+		WeaponCollision->SetCollisionResponseToChannel(
+			ObjectChannel.GetValue(),
+			ECR_Overlap
+		);
 	}
 }
 
@@ -180,17 +149,129 @@ void AWeaponBase::SetCurrentHolder(ABase* NewHolder)
 	SetOwner(NewHolder);
 }
 
+bool AWeaponBase::IsLegalStateTransition(
+	EWeaponState FromState,
+	EWeaponState ToState
+) const
+{
+	if (FromState == ToState)
+	{
+		return true;
+	}
+
+	// 任意状态都允许进入强制失效态。
+	if (ToState == EWeaponState::Disabled)
+	{
+		return true;
+	}
+
+	switch (FromState)
+	{
+	case EWeaponState::Idle:
+		return ToState == EWeaponState::Attacking;
+
+	case EWeaponState::Attacking:
+		// 没有进入判定窗口或攻击提前结束时，也必须能够进入恢复态。
+		return ToState == EWeaponState::ContactWindowOpen
+			|| ToState == EWeaponState::Recovering;
+
+	case EWeaponState::ContactWindowOpen:
+		return ToState == EWeaponState::Recovering;
+
+	case EWeaponState::Recovering:
+		return ToState == EWeaponState::Idle;
+
+	case EWeaponState::Disabled:
+		return ToState == EWeaponState::Idle;
+
+	default:
+		return false;
+	}
+}
+
+bool AWeaponBase::TryTransitionWeaponState(
+	EWeaponState NewState,
+	FName Context
+)
+{
+	const EWeaponState OldState = CurrentWeaponState;
+
+	if (!IsLegalStateTransition(OldState, NewState))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("[武器状态机][拒绝非法转换] 武器=%s 持有者=%s %s -> %s 上下文=%s"),
+			*GetName(),
+			*SafeObjectName(CurrentHolder),
+			WeaponStateToText(OldState),
+			WeaponStateToText(NewState),
+			*SafeNameText(Context)
+		);
+		return false;
+	}
+
+	if (OldState == NewState)
+	{
+		return true;
+	}
+
+	CurrentWeaponState = NewState;
+
+	UE_LOG(
+		LogTemp,
+		Verbose,
+		TEXT("[武器状态机][状态转换] 武器=%s %s -> %s 上下文=%s"),
+		*GetName(),
+		WeaponStateToText(OldState),
+		WeaponStateToText(NewState),
+		*SafeNameText(Context)
+	);
+	return true;
+}
+
+void AWeaponBase::PrepareForNewAttack()
+{
+	if (CurrentWeaponState == EWeaponState::Recovering
+		|| CurrentWeaponState == EWeaponState::Disabled)
+	{
+		TryTransitionWeaponState(
+			EWeaponState::Idle,
+			TEXT("PrepareForNewAttack")
+		);
+	}
+	else if (CurrentWeaponState != EWeaponState::Idle)
+	{
+		// 上一轮异常残留时，经由 Disabled -> Idle 收敛到合法起点。
+		TryTransitionWeaponState(
+			EWeaponState::Disabled,
+			TEXT("ReplaceUnfinishedAttack")
+		);
+		TryTransitionWeaponState(
+			EWeaponState::Idle,
+			TEXT("PrepareForNewAttack")
+		);
+	}
+}
+
 void AWeaponBase::ReceiveAttackData(const FWeaponAttackData& AttackData)
 {
+	PrepareForNewAttack();
+
+	if (!TryTransitionWeaponState(
+		EWeaponState::Attacking,
+		TEXT("ReceiveAttackData")))
+	{
+		return;
+	}
+
 	CurrentAttackData = AttackData;
 	CurrentAttackDirection = AttackData.AttackDirection;
-	CurrentWeaponState = EWeaponState::Attacking;
 
-	HitActorsThisTrace.Empty();
-	ContactedWeaponsThisTrace.Empty();
-	IgnoredBodyActorsThisTraceForLog.Empty();
-	bHasResolvedInteractionThisTrace = false;
-	ConsumedActorThisTrace.Reset();
+	if (WeaponInteractionComponent)
+	{
+		WeaponInteractionComponent->ResetForNewAttack();
+	}
 
 	if (CurrentAttackData.AttackStartTime < 0.0f)
 	{
@@ -200,7 +281,8 @@ void AWeaponBase::ReceiveAttackData(const FWeaponAttackData& AttackData)
 		}
 	}
 
-	CurrentAttackData.CounterAttackValidWindow = NormalizeWindow(CurrentAttackData.CounterAttackValidWindow);
+	CurrentAttackData.CounterAttackValidWindow =
+		NormalizeWindow(CurrentAttackData.CounterAttackValidWindow);
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("[攻击交互][武器接收攻击数据] 持有者=%s 武器=%s 方向=%s 攻击ID=%s 攻击开始=%.3f 基础伤害=%.2f 倍率=%.3f 最终伤害=%.2f 响应窗口=%.3f 状态=%s"),
@@ -226,49 +308,92 @@ void AWeaponBase::EnableWeaponTrace()
 		return;
 	}
 
-	bIsTracing = true;
-	CurrentWeaponState = EWeaponState::ContactWindowOpen;
+	if (CurrentWeaponState == EWeaponState::ContactWindowOpen)
+	{
+		return;
+	}
 
-	HitActorsThisTrace.Empty();
-	ContactedWeaponsThisTrace.Empty();
-	IgnoredBodyActorsThisTraceForLog.Empty();
-	bHasResolvedInteractionThisTrace = false;
-	ConsumedActorThisTrace.Reset();
+	if (!TryTransitionWeaponState(
+		EWeaponState::ContactWindowOpen,
+		TEXT("EnableWeaponTrace")))
+	{
+		return;
+	}
 
-	ResetSocketTracePositions();
+	if (WeaponInteractionComponent)
+	{
+		WeaponInteractionComponent->ResetForNewTraceWindow();
+	}
 
+	if (WeaponTraceComponent)
+	{
+		WeaponTraceComponent->EnableTrace();
+	}
 }
 
 void AWeaponBase::DisableWeaponTrace()
 {
-	bIsTracing = false;
-	PreviousSocketLocations.Empty();
-
-	if (CurrentWeaponState != EWeaponState::Disabled)
+	if (WeaponTraceComponent)
 	{
-		CurrentWeaponState = EWeaponState::Recovering;
+		WeaponTraceComponent->DisableTrace();
 	}
+
+	if (CurrentWeaponState == EWeaponState::ContactWindowOpen
+		|| CurrentWeaponState == EWeaponState::Attacking)
+	{
+		TryTransitionWeaponState(
+			EWeaponState::Recovering,
+			TEXT("DisableWeaponTrace")
+		);
+	}
+
+	const bool bResolved =
+		WeaponInteractionComponent
+		&& WeaponInteractionComponent->HasConsumedInteraction();
+	const AActor* ConsumedActor =
+		WeaponInteractionComponent
+		? WeaponInteractionComponent->GetConsumedActor()
+		: nullptr;
+	const int32 BodyHitCount =
+		WeaponInteractionComponent
+		? WeaponInteractionComponent->GetBodyHitCount()
+		: 0;
+	const int32 WeaponContactCount =
+		WeaponInteractionComponent
+		? WeaponInteractionComponent->GetWeaponContactCount()
+		: 0;
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("[攻击交互][判定窗口关闭] 持有者=%s 武器=%s 已完成交互=%s 已交互对象=%s 身体命中数=%d 武器接触数=%d 状态=%s"),
 		*SafeObjectName(CurrentHolder),
 		*GetName(),
-		bHasResolvedInteractionThisTrace ? TEXT("是") : TEXT("否"),
-		*SafeObjectName(ConsumedActorThisTrace.Get()),
-		HitActorsThisTrace.Num(),
-		ContactedWeaponsThisTrace.Num(),
+		bResolved ? TEXT("是") : TEXT("否"),
+		*SafeObjectName(ConsumedActor),
+		BodyHitCount,
+		WeaponContactCount,
 		WeaponStateToText(CurrentWeaponState));
 }
 
 void AWeaponBase::ForceStopWeaponInteraction(const FString& Reason)
 {
-	bIsTracing = false;
-	bHasResolvedInteractionThisTrace = true;
-	PreviousSocketLocations.Empty();
-
-	if (CurrentWeaponState != EWeaponState::Disabled)
+	if (WeaponTraceComponent)
 	{
-		CurrentWeaponState = EWeaponState::Disabled;
+		WeaponTraceComponent->ForceStopTrace();
+	}
+
+	if (WeaponInteractionComponent)
+	{
+		WeaponInteractionComponent->ForceResolveInteraction(nullptr);
+	}
+
+	// 普通静止武器被碰到时不应永久停在 Disabled。
+	// 只有确实处于攻击周期内的武器才进入强制失效态。
+	if (CurrentWeaponState != EWeaponState::Idle)
+	{
+		TryTransitionWeaponState(
+			EWeaponState::Disabled,
+			TEXT("ForceStopWeaponInteraction")
+		);
 	}
 
 	UE_LOG(LogTemp, Warning,
@@ -279,470 +404,64 @@ void AWeaponBase::ForceStopWeaponInteraction(const FString& Reason)
 		WeaponStateToText(CurrentWeaponState));
 }
 
-void AWeaponBase::ResetSocketTracePositions()
+void AWeaponBase::CompleteAttackCycle(bool bInterrupted)
 {
-	PreviousSocketLocations.Empty();
-
-	if (!WeaponMesh)
+	if (WeaponTraceComponent)
 	{
-		return;
+		WeaponTraceComponent->ForceStopTrace();
 	}
 
-	for (const FName& SocketName : BladeSocketNames)
+	if (CurrentWeaponState == EWeaponState::Attacking
+		|| CurrentWeaponState == EWeaponState::ContactWindowOpen)
 	{
-		if (WeaponMesh->DoesSocketExist(SocketName))
-		{
-			PreviousSocketLocations.Add(SocketName, WeaponMesh->GetSocketLocation(SocketName));
-		}
-	}
-}
-
-void AWeaponBase::PerformSocketSweeps(float DeltaSeconds)
-{
-	(void)DeltaSeconds;
-
-	if (!WeaponMesh || !GetWorld() || HasConsumedInteraction())
-	{
-		return;
-	}
-
-	FCollisionObjectQueryParams ObjectQueryParams;
-	ObjectQueryParams.AddObjectTypesToQuery(ECC_Pawn);
-	ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic);
-	ObjectQueryParams.AddObjectTypesToQuery(ECC_PhysicsBody);
-
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WeaponSocketSweep), false, this);
-	QueryParams.AddIgnoredActor(this);
-
-	if (CurrentHolder)
-	{
-		QueryParams.AddIgnoredActor(CurrentHolder);
-	}
-
-	const FCollisionShape SphereShape = FCollisionShape::MakeSphere(TraceSphereRadius);
-
-	for (const FName& SocketName : BladeSocketNames)
-	{
-		if (HasConsumedInteraction())
-		{
-			return;
-		}
-
-		if (!WeaponMesh->DoesSocketExist(SocketName))
-		{
-			continue;
-		}
-
-		const FVector CurrentLocation = WeaponMesh->GetSocketLocation(SocketName);
-		const FVector* PreviousLocationPtr = PreviousSocketLocations.Find(SocketName);
-
-		if (!PreviousLocationPtr)
-		{
-			PreviousSocketLocations.Add(SocketName, CurrentLocation);
-			continue;
-		}
-
-		const FVector PreviousLocation = *PreviousLocationPtr;
-		PreviousSocketLocations[SocketName] = CurrentLocation;
-
-		if (FVector::DistSquared(PreviousLocation, CurrentLocation) <= KINDA_SMALL_NUMBER)
-		{
-			continue;
-		}
-
-		TArray<FHitResult> Hits;
-		const bool bHit = GetWorld()->SweepMultiByObjectType(
-			Hits,
-			PreviousLocation,
-			CurrentLocation,
-			FQuat::Identity,
-			ObjectQueryParams,
-			SphereShape,
-			QueryParams
-		);
-
-		if (!bHit)
-		{
-			continue;
-		}
-
-		// 同一帧同时扫到身体和武器时，优先做武器交互。
-		// 这样能满足“响应窗口内身体碰撞无视，只能对武器碰撞反馈”的要求。
-		for (const FHitResult& Hit : Hits)
-		{
-			if (HasConsumedInteraction())
-			{
-				return;
-			}
-
-			AWeaponBase* OtherWeapon = FindWeaponFromHit(Hit);
-			if (OtherWeapon)
-			{
-				HandleWeaponHit(OtherWeapon, Hit);
-			}
-		}
-
-		for (const FHitResult& Hit : Hits)
-		{
-			if (HasConsumedInteraction())
-			{
-				return;
-			}
-
-			ABase* HitBody = FindBodyFromHit(Hit);
-			if (HitBody)
-			{
-				HandleBodyHit(HitBody, Hit);
-			}
-		}
-	}
-}
-
-void AWeaponBase::ProcessSweepHit(const FHitResult& Hit)
-{
-	if (HasConsumedInteraction())
-	{
-		return;
-	}
-
-	if (AWeaponBase* OtherWeapon = FindWeaponFromHit(Hit))
-	{
-		HandleWeaponHit(OtherWeapon, Hit);
-		return;
-	}
-
-	if (ABase* HitBody = FindBodyFromHit(Hit))
-	{
-		HandleBodyHit(HitBody, Hit);
-	}
-}
-
-void AWeaponBase::HandleBodyHit(ABase* HitBody, const FHitResult& Hit)
-{
-	if (!bIsTracing || HasConsumedInteraction())
-	{
-		return;
-	}
-
-	if (!HitBody || HitBody == CurrentHolder || HitActorsThisTrace.Contains(HitBody))
-	{
-		return;
-	}
-
-	float WindowElapsed = 0.0f;
-	float WindowLength = 0.0f;
-	FString IgnoreReason;
-
-	if (ShouldIgnoreBodyHitByCounterWindow(HitBody, Hit, WindowElapsed, WindowLength, IgnoreReason))
-	{
-		const TWeakObjectPtr<ABase> WeakHitBody(HitBody);
-
-		if (!IgnoredBodyActorsThisTraceForLog.Contains(WeakHitBody))
-		{
-			IgnoredBodyActorsThisTraceForLog.Add(WeakHitBody);
-
-			UE_LOG(LogTemp, Warning,
-				TEXT("[攻击交互][身体命中无视] 攻击者=%s 武器=%s 被扫到身体=%s 原因=%s 已经过=%.3f 有效窗口=%.3f 说明=窗口内只允许武器碰撞反馈，不消费本次攻击"),
-				*SafeObjectName(CurrentHolder),
-				*GetName(),
-				*SafeObjectName(HitBody),
-				*IgnoreReason,
-				WindowElapsed,
-				WindowLength);
-		}
-
-		return;
-	}
-
-	const float Damage = GetCurrentAttackDamage();
-	ApplyBodyDamageAndInterrupt(HitBody, this, Hit, Damage, TEXT("身体被武器直接命中，本次攻击被打断"));
-}
-
-void AWeaponBase::HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hit)
-{
-	if (!bIsTracing || HasConsumedInteraction())
-	{
-		return;
-	}
-
-	if (!OtherWeapon || OtherWeapon == this || OtherWeapon->CurrentHolder == CurrentHolder || OtherWeapon->HasConsumedInteraction())
-	{
-		return;
-	}
-
-	if (ContactedWeaponsThisTrace.Contains(OtherWeapon))
-	{
-		return;
-	}
-
-	ContactedWeaponsThisTrace.Add(OtherWeapon);
-	OtherWeapon->ContactedWeaponsThisTrace.Add(this);
-
-	const FWeaponContactResolveOutput ResolveOutput = UWeaponContactResolver::ResolveWeaponContactDetailed(this, OtherWeapon);
-
-	MarkInteractionConsumed(OtherWeapon);
-	OtherWeapon->MarkInteractionConsumed(this);
-
-	ApplyContactResultToWeapons(OtherWeapon, ResolveOutput.Result);
-
-	if (CurrentHolder)
-	{
-		CurrentHolder->PlayWeaponContactReaction(
-			ResolveOutput,
-			EWeaponContactSide::WeaponA
+		TryTransitionWeaponState(
+			EWeaponState::Recovering,
+			bInterrupted
+				? TEXT("InterruptedToRecovering")
+				: TEXT("AttackEndedToRecovering")
 		);
 	}
 
-	if (OtherWeapon && OtherWeapon->CurrentHolder)
+	if (CurrentWeaponState == EWeaponState::Recovering
+		|| CurrentWeaponState == EWeaponState::Disabled)
 	{
-		OtherWeapon->CurrentHolder->PlayWeaponContactReaction(
-			ResolveOutput,
-			EWeaponContactSide::WeaponB
+		TryTransitionWeaponState(
+			EWeaponState::Idle,
+			bInterrupted
+				? TEXT("InterruptedToIdle")
+				: TEXT("AttackEndedToIdle")
 		);
 	}
 
-	BP_OnWeaponContact(OtherWeapon, ResolveOutput.Result, Hit);
-
-	if (OtherWeapon)
-	{
-		OtherWeapon->BP_OnWeaponContact(this, ResolveOutput.Result, Hit);
-	}
-
-
-	if (ResolveOutput.bShouldDamageSlowerBody)
-	{
-		AWeaponBase* DamagedWeapon = nullptr;
-		AWeaponBase* DamageSourceWeapon = nullptr;
-
-		if (ResolveOutput.DamagedSide == EWeaponContactSide::WeaponA)
-		{
-			DamagedWeapon = this;
-			DamageSourceWeapon = OtherWeapon;
-		}
-		else if (ResolveOutput.DamagedSide == EWeaponContactSide::WeaponB)
-		{
-			DamagedWeapon = OtherWeapon;
-			DamageSourceWeapon = this;
-		}
-
-		if (DamagedWeapon && DamageSourceWeapon && DamagedWeapon->CurrentHolder)
-		{
-			const FString Reason = FString::Printf(
-				TEXT("%s：较慢方身体直接受伤并打断攻击"),
-				RelationToText(ResolveOutput.DirectionRelation)
-			);
-
-			const bool bFailedGuardContact =
-				ResolveOutput.Result == EWeaponContactResult::Clash &&
-				ResolveOutput.bIsValidTimedResponse &&
-				ResolveOutput.DirectionRelation == EWeaponContactDirectionRelation::NonOpposite;
-
-			DamageSourceWeapon->ApplyBodyDamageAndInterrupt(
-				DamagedWeapon->CurrentHolder,
-				DamageSourceWeapon,
-				Hit,
-				DamageSourceWeapon->GetCurrentAttackDamage(),
-				Reason,
-				bFailedGuardContact,
-				!bFailedGuardContact
-			);
-		}
-	}
-
-	UE_LOG(LogTemp, Warning,
-		TEXT("[攻击交互][武器碰撞结算] A角色=%s A武器=%s A方向=%s A开始=%.3f A状态=%s A伤害=%.2f | B角色=%s B武器=%s B方向=%s B开始=%.3f B状态=%s B伤害=%.2f | 关系=%s 结果=%s 时间差=%.3f 有效窗口=%.3f 有效响应=%s 较快方=%s 较慢方=%s 优势方=%s 受伤方=%s 命中点=%s"),
-		*SafeObjectName(CurrentHolder),
-		*GetName(),
-		DirectionToText(CurrentAttackDirection),
-		CurrentAttackData.AttackStartTime,
-		WeaponStateToText(CurrentWeaponState),
-		GetCurrentAttackDamage(),
-		*SafeObjectName(OtherWeapon->CurrentHolder),
-		*OtherWeapon->GetName(),
-		DirectionToText(OtherWeapon->CurrentAttackDirection),
-		OtherWeapon->CurrentAttackData.AttackStartTime,
-		WeaponStateToText(OtherWeapon->CurrentWeaponState),
-		OtherWeapon->GetCurrentAttackDamage(),
-		RelationToText(ResolveOutput.DirectionRelation),
-		ContactResultToText(ResolveOutput.Result),
-		ResolveOutput.TimeDelta,
-		ResolveOutput.ValidResponseWindow,
-		ResolveOutput.bIsValidTimedResponse ? TEXT("是") : TEXT("否"),
-		SideToText(ResolveOutput.FasterSide),
-		SideToText(ResolveOutput.SlowerSide),
-		SideToText(ResolveOutput.AdvantageSide),
-		SideToText(ResolveOutput.DamagedSide),
-		*Hit.Location.ToCompactString());
+	CurrentAttackDirection = EAttackDirection::None;
+	CurrentAttackData = FWeaponAttackData();
 }
 
-void AWeaponBase::ApplyContactResultToWeapons(AWeaponBase* OtherWeapon, EWeaponContactResult Result)
+bool AWeaponBase::IsWeaponTracing() const
 {
-	if (!OtherWeapon)
-	{
-		return;
-	}
-
-	switch (Result)
-	{
-	case EWeaponContactResult::Clash:
-		CurrentWeaponState = EWeaponState::Recovering;
-		OtherWeapon->CurrentWeaponState = EWeaponState::Recovering;
-		break;
-
-	case EWeaponContactResult::Deflect:
-		CurrentWeaponState = EWeaponState::Recovering;
-		OtherWeapon->CurrentWeaponState = EWeaponState::Recovering;
-		break;
-
-	case EWeaponContactResult::Interrupt:
-		CurrentWeaponState = EWeaponState::Recovering;
-		OtherWeapon->CurrentWeaponState = EWeaponState::Disabled;
-		break;
-
-	case EWeaponContactResult::Hit:
-		CurrentWeaponState = EWeaponState::Recovering;
-		OtherWeapon->CurrentWeaponState = EWeaponState::Recovering;
-		break;
-
-	case EWeaponContactResult::Ignore:
-	default:
-		break;
-	}
-
-	bIsTracing = false;
-	OtherWeapon->bIsTracing = false;
-	PreviousSocketLocations.Empty();
-	OtherWeapon->PreviousSocketLocations.Empty();
+	return WeaponTraceComponent && WeaponTraceComponent->IsTracing();
 }
 
-bool AWeaponBase::ShouldIgnoreBodyHitByCounterWindow(
+bool AWeaponBase::HasResolvedInteractionThisTrace() const
+{
+	return WeaponInteractionComponent
+		&& WeaponInteractionComponent->HasConsumedInteraction();
+}
+
+void AWeaponBase::DispatchBodyHitFeedback(
 	ABase* HitBody,
 	const FHitResult& Hit,
-	float& OutElapsed,
-	float& OutWindow,
-	FString& OutReason
-) const
-{
-	(void)Hit;
-
-	OutElapsed = -1.0f;
-	OutWindow = DefaultCounterAttackWindow;
-	OutReason = TEXT("无");
-
-	if (!GetWorld() || !CurrentAttackData.IsValid() || !HitBody || !HitBody->GetCurrentWeapon())
-	{
-		return false;
-	}
-
-	const AWeaponBase* OtherWeapon = HitBody->GetCurrentWeapon();
-	const FWeaponAttackData& OtherAttackData = OtherWeapon->GetCurrentAttackData();
-
-	// 只有被打者真的在本次攻击之后发起了响应攻击，才忽略身体命中。
-	// 没有响应攻击时，不能因为还在响应窗口内就无视身体伤害。
-	if (!OtherAttackData.IsValid())
-	{
-		return false;
-	}
-
-	if (OtherAttackData.AttackStartTime <= CurrentAttackData.AttackStartTime)
-	{
-		return false;
-	}
-
-	const float FirstAttackStartTime = CurrentAttackData.AttackStartTime;
-	const float FirstAttackWindow = NormalizeWindow(CurrentAttackData.CounterAttackValidWindow);
-	const float Now = GetWorld()->GetTimeSeconds();
-
-	OutElapsed = Now - FirstAttackStartTime;
-	OutWindow = FirstAttackWindow;
-
-	const bool bInsideWindow = OutElapsed >= 0.0f && OutElapsed <= OutWindow;
-
-	if (bInsideWindow)
-	{
-		OutReason = FString::Printf(
-			TEXT("被扫到身体的一方已经在响应窗口内发起后发攻击，身体命中暂不消费，等待武器反馈")
-		);
-	}
-
-	return bInsideWindow;
-}
-void AWeaponBase::ApplyBodyDamageAndInterrupt(
-	ABase* TargetBody,
-	AWeaponBase* DamageSourceWeapon,
-	const FHitResult& Hit,
-	float Damage,
-	const FString& Reason,
-	bool bSuppressNonLethalHitReaction,
-	bool bInterruptTarget
+	float Damage
 )
 {
-	if (!TargetBody || Damage <= 0.0f)
-	{
-		return;
-	}
-
-	AWeaponBase* SourceWeapon = DamageSourceWeapon ? DamageSourceWeapon : this;
-	ABase* SourceHolder = SourceWeapon ? SourceWeapon->CurrentHolder : CurrentHolder;
-	AController* InstigatorController = SourceHolder ? SourceHolder->GetController() : nullptr;
-
-	SourceWeapon->HitActorsThisTrace.Add(TargetBody);
-	SourceWeapon->MarkInteractionConsumed(TargetBody);
-
-	if (bSuppressNonLethalHitReaction)
-	{
-		TargetBody->ApplyDamageWithoutNonLethalHitReaction(
-			Damage,
-			InstigatorController,
-			SourceWeapon
-		);
-	}
-	else
-	{
-		UGameplayStatics::ApplyDamage(
-			TargetBody,
-			Damage,
-			InstigatorController,
-			SourceWeapon,
-			UDamageType::StaticClass()
-		);
-	}
-
-	if (bInterruptTarget)
-	{
-		TargetBody->InterruptCurrentAttackByBodyHit(SourceWeapon);
-	}
-
-	SourceWeapon->BP_OnBodyHit(TargetBody, Hit, Damage);
-
-	UE_LOG(LogTemp, Warning,
-		TEXT("[攻击交互][身体伤害并打断] 攻击者=%s 攻击武器=%s 受击者=%s 方向=%s 攻击ID=%s 伤害=%.2f 抑制Hit反应=%s 打断目标=%s 原因=%s 命中点=%s"),
-		*SafeObjectName(SourceHolder),
-		*SafeObjectName(SourceWeapon),
-		*SafeObjectName(TargetBody),
-		DirectionToText(SourceWeapon->CurrentAttackDirection),
-		*SafeNameText(SourceWeapon->CurrentAttackData.AttackType),
-		Damage,
-		bSuppressNonLethalHitReaction ? TEXT("是") : TEXT("否"),
-		bInterruptTarget ? TEXT("是") : TEXT("否"),
-		*Reason,
-		*Hit.Location.ToCompactString());
-}
-bool AWeaponBase::HasConsumedInteraction() const
-{
-	return bHasResolvedInteractionThisTrace;
+	BP_OnBodyHit(HitBody, Hit, Damage);
 }
 
-void AWeaponBase::MarkInteractionConsumed(AActor* ConsumedActor)
+void AWeaponBase::DispatchWeaponContactFeedback(
+	AWeaponBase* OtherWeapon,
+	EWeaponContactResult Result,
+	const FHitResult& Hit
+)
 {
-	bHasResolvedInteractionThisTrace = true;
-	ConsumedActorThisTrace = ConsumedActor;
-
-	bIsTracing = false;
-	PreviousSocketLocations.Empty();
-
-	if (CurrentWeaponState != EWeaponState::Disabled)
-	{
-		CurrentWeaponState = EWeaponState::Recovering;
-	}
+	BP_OnWeaponContact(OtherWeapon, Result, Hit);
 }

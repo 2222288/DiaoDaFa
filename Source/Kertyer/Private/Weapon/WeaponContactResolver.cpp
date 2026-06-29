@@ -1,9 +1,10 @@
 ﻿#include "Weapon/WeaponContactResolver.h"
 #include "Weapon/WeaponBase.h"
+#include "Combat/CombatDirectionUtils.h"
 
 namespace
 {
-	 constexpr float DefaultCounterAttackWindow = 0.5f;
+	constexpr float DefaultCounterAttackWindow = 0.5f;
 
 	static float NormalizeWindow(float Window)
 	{
@@ -104,18 +105,7 @@ FWeaponContactResolveOutput UWeaponContactResolver::ResolveWeaponContactDetailed
 		return Output;
 	}
 
-	if (IsOppositeDirection(Input.DirectionA, Input.DirectionB))
-	{
-		Output.DirectionRelation = EWeaponContactDirectionRelation::Opposite;
-	}
-	else if (IsNearOppositeDirection(Input.DirectionA, Input.DirectionB))
-	{
-		Output.DirectionRelation = EWeaponContactDirectionRelation::NearOpposite;
-	}
-	else
-	{
-		Output.DirectionRelation = EWeaponContactDirectionRelation::NonOpposite;
-	}
+	Output.DirectionRelation = FCombatDirectionUtils::ResolveDirectionRelation(Input.DirectionA, Input.DirectionB);
 
 	// 速度一致：双方攻击动画继续；一旦武器碰撞，双方播放弹开。
 	if (Output.bIsEqualTiming)
@@ -169,6 +159,7 @@ FWeaponContactResolveOutput UWeaponContactResolver::ResolveWeaponContactDetailed
 
 	return Output;
 }
+
 EWeaponContactResult UWeaponContactResolver::ResolveWeaponContact(const AWeaponBase* WeaponA, const AWeaponBase* WeaponB)
 {
 	return ResolveWeaponContactDetailed(WeaponA, WeaponB).Result;
@@ -181,13 +172,13 @@ EWeaponContactResult UWeaponContactResolver::ResolveWeaponContactFromInput(const
 
 bool UWeaponContactResolver::IsOppositeDirection(EAttackDirection A, EAttackDirection B)
 {
-	return GetCircularDirectionDelta(A, B) == 4;
+	return FCombatDirectionUtils::CircularDirectionDelta(A, B) == 4;
 }
 
 bool UWeaponContactResolver::IsNearOppositeDirection(EAttackDirection A, EAttackDirection B)
 {
 	// 八方向下，差 3 或 5 都属于“较对向”，用环形差值后统一为 3。
-	return GetCircularDirectionDelta(A, B) == 3;
+	return FCombatDirectionUtils::CircularDirectionDelta(A, B) == 3;
 }
 
 bool UWeaponContactResolver::IsActiveWeaponState(EWeaponState State)
@@ -197,41 +188,12 @@ bool UWeaponContactResolver::IsActiveWeaponState(EWeaponState State)
 
 int32 UWeaponContactResolver::DirectionToIndex(EAttackDirection Direction)
 {
-	switch (Direction)
-	{
-	case EAttackDirection::Up:
-		return 0;
-	case EAttackDirection::UpRight:
-		return 1;
-	case EAttackDirection::Right:
-		return 2;
-	case EAttackDirection::DownRight:
-		return 3;
-	case EAttackDirection::Down:
-		return 4;
-	case EAttackDirection::DownLeft:
-		return 5;
-	case EAttackDirection::Left:
-		return 6;
-	case EAttackDirection::UpLeft:
-		return 7;
-	default:
-		return INDEX_NONE;
-	}
+	return FCombatDirectionUtils::DirectionToIndex(Direction);
 }
 
 int32 UWeaponContactResolver::GetCircularDirectionDelta(EAttackDirection A, EAttackDirection B)
 {
-	const int32 IndexA = DirectionToIndex(A);
-	const int32 IndexB = DirectionToIndex(B);
-
-	if (IndexA == INDEX_NONE || IndexB == INDEX_NONE)
-	{
-		return INDEX_NONE;
-	}
-
-	const int32 RawDelta = FMath::Abs(IndexA - IndexB);
-	return FMath::Min(RawDelta, 8 - RawDelta);
+	return FCombatDirectionUtils::CircularDirectionDelta(A, B);
 }
 
 EAttackTimingRelation UWeaponContactResolver::GetTimingRelation(

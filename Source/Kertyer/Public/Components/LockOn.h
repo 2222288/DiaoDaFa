@@ -115,9 +115,9 @@ private:
 	UPROPERTY(EditAnywhere, Category = "LockOn|Range")
 	float MaxDistanceCm = 10000.0f;
 
-	//锁定角度
-	UPROPERTY(EditAnywhere, Category = "LockOn|Angle")
-	float KeepHalfAngleDeg = 0.059f;
+	//保持锁定允许的水平半角，单位为度。
+	UPROPERTY(EditAnywhere,Category = "LockOn|Angle",meta = (DisplayName = "保持锁定半角"))	
+	float KeepHalfAngleDeg = 85.0f;
 
 	//遮挡最大时间
 	UPROPERTY(EditAnywhere, Category = "LockOn|Occlusion")

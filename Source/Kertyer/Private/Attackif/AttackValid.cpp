@@ -8,6 +8,7 @@ FAttackValid::FAttackValid()
 void FAttackValid::Reset()
 {
     Sampler.Reset();
+    CachedTrajectory = FTrajectoryResult();
     MotionFrames.Empty();
     LastInputTime = -1.0f;
 }
@@ -31,17 +32,26 @@ bool FAttackValid::PushInput(
     PushMotionSample(Input, CurrentTime, PreviousInputTime);
     LastInputTime = CurrentTime;
 
-    Sampler.PushInput(Input, CurrentTime, MinSampleDistance);
+    const bool bTrackSamplesChanged = Sampler.PushInput(
+        Input,
+        CurrentTime,
+        MinSampleDistance,
+        Config.TrackConfig.MaxRawSampleCount,
+        Config.TrackConfig.MaxTrackDurationSeconds);
 
     FTrackDetectConfig LocalTrackConfig = Config.TrackConfig;
     LocalTrackConfig.MinValidSegmentLength = FMath::Max(
         FMath::Max(0.0f, Config.MinDirectionSegmentLength),
         FMath::Max(0.0f, MinSampleDistance) * 2.0f);
 
-    OutResult.Trajectory = FTrackPreprocessUtils::AnalyzeTrajectory(
-        Sampler.GetSamples(),
-        LocalTrackConfig);
+    if (bTrackSamplesChanged)
+    {
+        CachedTrajectory = FTrackPreprocessUtils::AnalyzeTrajectory(
+            Sampler.GetSamples(),
+            LocalTrackConfig);
+    }
 
+    OutResult.Trajectory = CachedTrajectory;
     OutResult.Direction = OutResult.Trajectory.Direction;
     OutResult.bTrajectoryValid =
         OutResult.Trajectory.bValid &&

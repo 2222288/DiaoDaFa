@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "BaseActor/Treat.h"
@@ -19,7 +19,7 @@ ATreat::ATreat()
     TreatBox = CreateDefaultSubobject<UBoxComponent>(TEXT("TriggerBox"));
     TreatBox->SetupAttachment(RootComponent);
 
-    // ÉèÖÃÅö×²Ô¤ÉèÎª Trigger£¬×¨ÓÃÓÚ¼ì²â
+    // è®¾ç½®ç¢°æ’é¢„è®¾ä¸º Triggerï¼Œä¸“ç”¨äºæ£€æµ‹
     TreatBox->SetCollisionProfileName(TEXT("Trigger"));
     TreatBox->SetBoxExtent(FVector(50.f, 50.f, 50.f));
 
@@ -30,7 +30,7 @@ void ATreat::BeginPlay()
 {
 	Super::BeginPlay();
 	
-    // °ó¶¨ÖØµşÊÂ¼ş£ºµ±ÓĞÈË½øÈëºĞ×ÓÊ±£¬Ö´ĞĞ OnOverlapBegin
+    // ç»‘å®šé‡å äº‹ä»¶ï¼šå½“æœ‰äººè¿›å…¥ç›’å­æ—¶ï¼Œæ‰§è¡Œ OnOverlapBegin
     if (TreatBox)
     {
         TreatBox->OnComponentBeginOverlap.AddDynamic(this, &ATreat::OnHealOverlap);
@@ -46,18 +46,18 @@ void ATreat::Tick(float DeltaTime)
 
 void ATreat::OnHealOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-    // 1. ¼ì²éÊÇ·ñÓĞĞ§
+    // 1. æ£€æŸ¥æ˜¯å¦æœ‰æ•ˆ
     if (!OtherActor || OtherActor == this) return;
 
-    // 2. ³¢ÊÔ°Ñ½øÈëµÄÎïÌå×ª»»³É ABase (Ö»ÓĞ Base ¼°Æä×ÓÀà²ÅÓĞÑªÌõ)
+    // 2. å°è¯•æŠŠè¿›å…¥çš„ç‰©ä½“è½¬æ¢æˆ ABase (åªæœ‰ Base åŠå…¶å­ç±»æ‰æœ‰è¡€æ¡)
     ABase* BaseCharacter = Cast<ABase>(OtherActor);
 
     if (BaseCharacter)
     {
-        // 3. µ÷ÓÃ Base ÀïĞ´ºÃµÄ Heal º¯Êı
+        // 3. è°ƒç”¨ Base é‡Œå†™å¥½çš„ Heal å‡½æ•°
         BaseCharacter->Treat(Treatmentamount);
 
-        UE_LOG(LogTemp, Warning, TEXT(">> [C++ÖÎÁÆ] ¶Ô %s ½øĞĞÁËÖÎÁÆ£¬ÊıÖµ: %f"), *OtherActor->GetName(), Treatmentamount);
+        UE_LOG(LogTemp, Warning, TEXT(">> [C++æ²»ç–—] å¯¹ %s è¿›è¡Œäº†æ²»ç–—ï¼Œæ•°å€¼: %f"), *OtherActor->GetName(), Treatmentamount);
 
     }
 }

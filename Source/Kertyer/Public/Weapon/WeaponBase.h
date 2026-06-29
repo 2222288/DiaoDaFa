@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
@@ -9,6 +9,8 @@ class ABase;
 class USceneComponent;
 class UBoxComponent;
 class UStaticMeshComponent;
+class UWeaponTraceComponent;
+class UWeaponInteractionComponent;
 
 UCLASS()
 class KERTYER_API AWeaponBase : public AActor
@@ -17,8 +19,6 @@ class KERTYER_API AWeaponBase : public AActor
 
 public:
 	AWeaponBase();
-
-	virtual void Tick(float DeltaSeconds) override;
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "设置当前持有者"))
 	void SetCurrentHolder(ABase* NewHolder);
@@ -41,8 +41,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "关闭武器接触窗口"))
 	void CloseWeaponContactWindow() { DisableWeaponTrace(); }
 
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "强制停止武器交互"))
+	void ForceStopWeaponInteraction(const FString& Reason);
+
+	/** 蒙太奇的统一结束出口。负责将 Recovering/Disabled 明确恢复到 Idle。 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "完成武器攻击周期"))
+	void CompleteAttackCycle(bool bInterrupted);
+
+	/**
+	 * 武器状态唯一写入口。
+	 * 非法转换会被拒绝并输出警告，避免多个组件直接改写状态。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "尝试切换武器状态"))
+	bool TryTransitionWeaponState(EWeaponState NewState, FName Context = NAME_None);
+
 	UFUNCTION(BlueprintPure, Category = "Combat|Weapon", meta = (DisplayName = "武器是否正在判定"))
-	bool IsWeaponTracing() const { return bIsTracing; }
+	bool IsWeaponTracing() const;
 
 	UFUNCTION(BlueprintPure, Category = "Combat|Weapon", meta = (DisplayName = "获取当前攻击方向"))
 	EAttackDirection GetCurrentAttackDirection() const { return CurrentAttackDirection; }
@@ -61,42 +75,31 @@ public:
 
 	const FWeaponAttackData& GetCurrentAttackData() const { return CurrentAttackData; }
 
-	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon", meta = (DisplayName = "强制停止武器交互"))
-	void ForceStopWeaponInteraction(const FString& Reason);
-
 	UFUNCTION(BlueprintPure, Category = "Combat|Weapon", meta = (DisplayName = "本次窗口是否已完成交互"))
-	bool HasResolvedInteractionThisTrace() const { return bHasResolvedInteractionThisTrace; }
+	bool HasResolvedInteractionThisTrace() const;
+
+	UWeaponTraceComponent* GetWeaponTraceComponent() const { return WeaponTraceComponent.Get(); }
+	UWeaponInteractionComponent* GetWeaponInteractionComponent() const { return WeaponInteractionComponent.Get(); }
+
+	ECollisionChannel GetWeaponObjectChannel() const
+	{
+		return WeaponObjectChannel.GetValue();
+	}
+
+	const TArray<TEnumAsByte<ECollisionChannel>>& GetWeaponTraceObjectChannels() const
+	{
+		return WeaponTraceObjectChannels;
+	}
+
+	void DispatchBodyHitFeedback(ABase* HitBody, const FHitResult& Hit, float Damage);
+	void DispatchWeaponContactFeedback(
+		AWeaponBase* OtherWeapon,
+		EWeaponContactResult Result,
+		const FHitResult& Hit
+	);
 
 protected:
 	virtual void BeginPlay() override;
-
-	void ResetSocketTracePositions();
-
-	void PerformSocketSweeps(float DeltaSeconds);
-
-	void ProcessSweepHit(const FHitResult& Hit);
-
-	void HandleBodyHit(ABase* HitBody, const FHitResult& Hit);
-
-	void HandleWeaponHit(AWeaponBase* OtherWeapon, const FHitResult& Hit);
-
-	void ApplyContactResultToWeapons(AWeaponBase* OtherWeapon, EWeaponContactResult Result);
-
-	bool ShouldIgnoreBodyHitByCounterWindow(ABase* HitBody, const FHitResult& Hit, float& OutElapsed, float& OutWindow, FString& OutReason) const;
-
-	void ApplyBodyDamageAndInterrupt(
-		ABase* TargetBody,
-		AWeaponBase* DamageSourceWeapon,
-		const FHitResult& Hit,
-		float Damage,
-		const FString& Reason,
-		bool bSuppressNonLethalHitReaction = false,
-		bool bInterruptTarget = true
-	);
-
-	bool HasConsumedInteraction() const;
-
-	void MarkInteractionConsumed(AActor* ConsumedActor);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Combat|Weapon|Feedback", meta = (DisplayName = "武器命中身体反馈"))
 	void BP_OnBodyHit(ABase* HitBody, const FHitResult& Hit, float Damage);
@@ -129,11 +132,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon|Trace", meta = (DisplayName = "刀刃Socket名称列表"))
 	TArray<FName> BladeSocketNames;
 
+	/**
+	 * 建议在 Project Settings > Collision 中新建 Weapon Object Channel，
+	 * 然后在武器蓝图中把本字段改为该通道。
+	 * 默认 WorldDynamic 仅用于兼容旧资产。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon|Collision", meta = (DisplayName = "武器对象通道"))
+	TEnumAsByte<ECollisionChannel> WeaponObjectChannel = ECC_WorldDynamic;
+
+	/**
+	 * 武器轨迹允许查询的目标对象通道。
+	 * 建议配置 Damageable、Breakable 等专用 Object Channel；武器通道会自动加入查询。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Weapon|Collision", meta = (DisplayName = "武器轨迹目标对象通道"))
+	TArray<TEnumAsByte<ECollisionChannel>> WeaponTraceObjectChannels;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "当前持有者"))
 	TObjectPtr<ABase> CurrentHolder;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "是否正在判定"))
-	bool bIsTracing = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Weapon", meta = (DisplayName = "当前攻击方向"))
 	EAttackDirection CurrentAttackDirection = EAttackDirection::None;
@@ -145,15 +160,14 @@ public:
 	FWeaponAttackData CurrentAttackData;
 
 private:
-	TMap<FName, FVector> PreviousSocketLocations;
+	bool IsLegalStateTransition(EWeaponState FromState, EWeaponState ToState) const;
+	void PrepareForNewAttack();
+	void ConfigureWeaponCollision();
 
-	TSet<TObjectPtr<ABase>> HitActorsThisTrace;
+private:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UWeaponTraceComponent> WeaponTraceComponent;
 
-	TSet<TObjectPtr<AWeaponBase>> ContactedWeaponsThisTrace;
-
-	bool bHasResolvedInteractionThisTrace = false;
-
-	TWeakObjectPtr<AActor> ConsumedActorThisTrace;
-
-	TSet<TWeakObjectPtr<ABase>> IgnoredBodyActorsThisTraceForLog;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UWeaponInteractionComponent> WeaponInteractionComponent;
 };

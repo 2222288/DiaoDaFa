@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "BaseActor/Harm.h"
@@ -12,18 +12,18 @@ AHarm::AHarm()
 
 	PrimaryActorTick.bCanEverTick = false;
 
-    // 1. ´´½¨Íø¸ñÌå×÷Îª¸ù×é¼þ
+    // 1. åˆ›å»ºç½‘æ ¼ä½“ä½œä¸ºæ ¹ç»„ä»¶
     TrapMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TrapMesh"));
     RootComponent = TrapMesh;
 
-    // 2. ´´½¨Åö×²ºÐ£¬²¢¹ÒÔÚÍø¸ñÌåÉÏ
+    // 2. åˆ›å»ºç¢°æ’žç›’ï¼Œå¹¶æŒ‚åœ¨ç½‘æ ¼ä½“ä¸Š
     DamageBox = CreateDefaultSubobject<UBoxComponent>(TEXT("DamageBox"));
     DamageBox->SetupAttachment(GetRootComponent());
 
-    // ÉèÖÃÅö×²ºÐ´óÐ¡ (¸ù¾ÝÄúµÄÄ£ÐÍ´óÐ¡µ÷Õû)
+    // è®¾ç½®ç¢°æ’žç›’å¤§å° (æ ¹æ®æ‚¨çš„æ¨¡åž‹å¤§å°è°ƒæ•´)
     DamageBox->SetBoxExtent(FVector(50.f, 50.f, 50.f));
 
-    // 3. ÉèÖÃÅö×²Ô¤Éè£ºÖ»¼ì²âÖØµþ (Overlap)£¬²»×èµ²ÎïÀí
+    // 3. è®¾ç½®ç¢°æ’žé¢„è®¾ï¼šåªæ£€æµ‹é‡å  (Overlap)ï¼Œä¸é˜»æŒ¡ç‰©ç†
     DamageBox->SetCollisionProfileName(TEXT("Trigger"));
 
 }
@@ -33,7 +33,7 @@ void AHarm::BeginPlay()
 {
 	Super::BeginPlay();
 	
-    // °ó¶¨ÖØµþÊÂ¼þ£ºµ±ÓÐÈË½øÈëºÐ×ÓÊ±£¬Ö´ÐÐ OnOverlapBegin
+    // ç»‘å®šé‡å äº‹ä»¶ï¼šå½“æœ‰äººè¿›å…¥ç›’å­æ—¶ï¼Œæ‰§è¡Œ OnOverlapBegin
     DamageBox->OnComponentBeginOverlap.AddDynamic(this, &AHarm::OnOverlapBegin);
 
 }
@@ -48,21 +48,21 @@ void AHarm::Tick(float DeltaTime)
 void AHarm::OnOverlapBegin(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 
-    // ÅÅ³ýµôÏÝÚå×Ô¼º£¬·ÀÖ¹×Ô¼ºÉËº¦×Ô¼º
+    // æŽ’é™¤æŽ‰é™·é˜±è‡ªå·±ï¼Œé˜²æ­¢è‡ªå·±ä¼¤å®³è‡ªå·±
     if (OtherActor && OtherActor != this)
     {
-        // ºËÐÄÂß¼­£º¶Ô½øÈë·¶Î§µÄ Actor Ê©¼ÓÉËº¦
-        // Õâ»á×Ô¶¯´¥·¢ÎÒÃÇÔÚ Base.cpp ÀïÐ´µÄ TakeDamage º¯Êý
+        // æ ¸å¿ƒé€»è¾‘ï¼šå¯¹è¿›å…¥èŒƒå›´çš„ Actor æ–½åŠ ä¼¤å®³
+        // è¿™ä¼šè‡ªåŠ¨è§¦å‘æˆ‘ä»¬åœ¨ Base.cpp é‡Œå†™çš„ TakeDamage å‡½æ•°
         UGameplayStatics::ApplyDamage(
-            OtherActor,           // ÊÜº¦Õß
-            DamageAmount,         // ÉËº¦Öµ
-            GetInstigatorController(), // Ê©º¦Õß¿ØÖÆÆ÷ (Èç¹ûÊÇ»·¾³ÏÝÚå¿ÉÒÔÊÇnullptr)
-            this,                 // ÉËº¦À´Ô´ (ÏÝÚå±¾Éí)
-            UDamageType::StaticClass() // ÉËº¦ÀàÐÍ (Ä¬ÈÏ)
+            OtherActor,           // å—å®³è€…
+            DamageAmount,         // ä¼¤å®³å€¼
+            GetInstigatorController(), // æ–½å®³è€…æŽ§åˆ¶å™¨ (å¦‚æžœæ˜¯çŽ¯å¢ƒé™·é˜±å¯ä»¥æ˜¯nullptr)
+            this,                 // ä¼¤å®³æ¥æº (é™·é˜±æœ¬èº«)
+            UDamageType::StaticClass() // ä¼¤å®³ç±»åž‹ (é»˜è®¤)
         );
 
-        // ´òÓ¡µ÷ÊÔÐÅÏ¢
-        UE_LOG(LogTemp, Warning, TEXT("ÏÝÚå¶Ô %s Ôì³ÉÁË %f µãÉËº¦"), *OtherActor->GetName(), DamageAmount);
+        // æ‰“å°è°ƒè¯•ä¿¡æ¯
+        UE_LOG(LogTemp, Warning, TEXT("é™·é˜±å¯¹ %s é€ æˆäº† %f ç‚¹ä¼¤å®³"), *OtherActor->GetName(), DamageAmount);
     }
 }
 

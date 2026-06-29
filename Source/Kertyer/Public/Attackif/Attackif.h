@@ -29,6 +29,11 @@ struct FTrackDetectConfig
     // 轨迹几何有效所需的最小线段长度。
     // 该值只用于“方向/轨迹是否可靠”，不再作为攻击触发的速度条件。
     float MinValidSegmentLength = 280.0f;
+
+    // 性能保护：限制一次攻击采样的时间、原始点数和预处理后点数。
+    int32 MaxRawSampleCount = 48;
+    float MaxTrackDurationSeconds = 0.35f;
+    int32 MaxProcessedSampleCount = 48;
 };
 
 // 纯轨迹结果：只描述轨迹是否有效、方向、起止点、长度和处理后采样。
@@ -55,11 +60,13 @@ public:
     void Reset();
 
     // Input 是本帧鼠标增量；内部会累计为本次攻击的局部轨迹坐标。
-    // 返回值表示本帧是否追加了新的轨迹采样点。
+    // 返回值表示采样数组是否发生变化（追加或裁剪）。
     bool PushInput(
         const FVector2D& Input,
         float CurrentTime,
-        float MinSampleDistance);
+        float MinSampleDistance,
+        int32 MaxSampleCount,
+        float MaxDurationSeconds);
 
     const TArray<FTrackSample>& GetSamples() const { return TrackSamples; }
     const FVector2D& GetAccumulatedPosition() const { return AccumulatedPosition; }

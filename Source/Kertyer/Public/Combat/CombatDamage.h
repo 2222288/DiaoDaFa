@@ -1,46 +1,62 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Combat/CombatTypes.h"
-#include "Math/UnrealMathUtility.h"
-#include "Attackif/Attackif.h"
-#include "Attackif/AttackValid.h"
-#include "Math/Vector2D.h"
 
-class FCombatDamage
+class FCombatSampling;
+class FCombatStatusSwitch;
+class UAttackMoveDataAsset;
+class UAnimMontage;
+
+/** æˆ˜æ–—ä¼¤å®³æ¨¡å—ï¼šè´Ÿè´£å‡ºæ‹›ã€å½“å‰æ”»å‡»ä¼¤å®³æ•°æ®å’Œæ­¦å™¨åˆ¤å®šçª—å£ã€‚ */
+class KERTYER_API FCombatDamage
 {
 public:
-	/** µ±Ç°ÕâÒ»´Î¹¥»÷Êµ¼ÊÊ¹ÓÃµÄÉËº¦±¶ÂÊ¡£ */
-	float CurrentDamageModifier = 1.0f;
+    void Initialize();
 
-	/** ÏÂÒ»´Î¹¥»÷½«»áÊ¹ÓÃµÄÉËº¦±¶ÂÊ£¬ÓÉ±¾´Î¹ì¼£ÆÀ·ÖĞ´Èë¡£ */
-	float NextAttackDamageModifier = 1.0f;
+    float GetCurrentDamageModifier() const { return CurrentDamageModifier; }
 
-	/** »ñÈ¡µ±Ç°¹¥»÷ÉËº¦±¶ÂÊ¡£ */
-	float GetCurrentDamageModifier() const { return CurrentDamageModifier; }
+    float GetCurrentAttackDamage() const { return CurrentBaseDamage * CurrentDamageModifier; }
 
-	/** »ñÈ¡µ±Ç°¹¥»÷×îÖÕÉËº¦£¬µÈÓÚ»ù´¡ÉËº¦³ËÒÔµ±Ç°±¶ÂÊ¡£ */
-	float GetCurrentAttackDamage() const;
+    float GetCurrentBaseDamage() const { return CurrentBaseDamage; }
 
-	/** ´ò¿ªµ±Ç°ÎäÆ÷µÄÃüÖĞÅĞ¶¨´°¿Ú¡£Í¨³£ÓÉ¶¯»­Í¨Öªµ÷ÓÃ¡£ */
-	void EnableWeaponTrace();
+    FName GetCurrentAttackType() const { return CurrentAttackType; }
 
-	/** ¹Ø±Õµ±Ç°ÎäÆ÷µÄÃüÖĞÅĞ¶¨´°¿Ú¡£Í¨³£ÓÉ¶¯»­Í¨Öªµ÷ÓÃ¡£ */
-	void DisableWeaponTrace();
+    bool IsWeaponTraceWindowOpen() const { return bWeaponTraceWindowOpen; }
 
-	/** µ±Ç°ÎäÆ÷ÅĞ¶¨´°¿ÚÊÇ·ñÒÑ¾­´ò¿ª¡£ */
-	bool bWeaponTraceWindowOpen = false;
+    void EnableWeaponTrace(AActor* Owner);
 
-	/** µ±Ç°¹¥»÷ ID */
-	FName CurrentAttackType = NAME_None;
+    void DisableWeaponTrace(AActor* Owner);
 
-	/** Ö´ĞĞÒ»´Î¹¥»÷£ºÇëÇó¶¯»­²¥·Å¡¢¸üĞÂÉËº¦Êı¾İ¡¢ÏÂ·¢ÎäÆ÷¹¥»÷Êı¾İ¡£ */
-	void PerformAttack(EAttackDirection Direction, float TrackScore);
+    void ForceDisableWeaponTrace(AActor* Owner);
 
-	/** µ±Ç°¹¥»÷»ù´¡ÉËº¦ */
-	float CurrentBaseDamage = 0.0f;
+    /** æˆåŠŸæ’­æ”¾æ”»å‡»æ—¶è¿”å›æœ¬æ¬¡æ”»å‡»è’™å¤ªå¥‡ï¼Œå¦åˆ™è¿”å› nullptrã€‚ */
+    UAnimMontage* PerformAttack(
+        AActor* Owner,
+        UWorld* World,
+        const UAttackMoveDataAsset* AttackMoveDataAsset,
+        FCombatStatusSwitch& Status,
+        FCombatSampling& Sampling,
+        EAttackDirection Direction,
+        float TrackScore
+    );
 
-	/** »ñÈ¡µ±Ç°¹¥»÷»ù´¡ÉËº¦£¬À´×Ô¹¥»÷Êı¾İ±í¡£ */
-	float GetCurrentBaseDamage() const { return CurrentBaseDamage; }
+    void ResetForGuard();
 
+    void ResetAfterAttack();
+
+    void ResetAfterInterrupt();
+
+    void ResetForDeflect();
+
+private:
+    float CurrentDamageModifier = 1.0f;
+
+    float NextAttackDamageModifier = 1.0f;
+
+    float CurrentBaseDamage = 0.0f;
+
+    FName CurrentAttackType = NAME_None;
+
+    bool bWeaponTraceWindowOpen = false;
 };

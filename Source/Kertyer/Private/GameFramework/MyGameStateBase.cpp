@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "GameFramework/MyGameStateBase.h"
@@ -6,7 +6,7 @@
 
 AMyGameStateBase::AMyGameStateBase()
 {
-	// ÖĞÎÄ×¢ÊÍ£ºÒª¸´ÖÆÊôĞÔ£¬Actor ±ØĞëÔÊĞí¸´ÖÆ
+	// ä¸­æ–‡æ³¨é‡Šï¼šè¦å¤åˆ¶å±æ€§ï¼ŒActor å¿…é¡»å…è®¸å¤åˆ¶
 	bReplicates = true;
 }
 
@@ -14,5 +14,5 @@ void AMyGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(AMyGameStateBase, Phase); // ÖĞÎÄ×¢ÊÍ£ºÈÃ Phase ×Ô¶¯Í¬²½
+	DOREPLIFETIME(AMyGameStateBase, Phase); // ä¸­æ–‡æ³¨é‡Šï¼šè®© Phase è‡ªåŠ¨åŒæ­¥
 }

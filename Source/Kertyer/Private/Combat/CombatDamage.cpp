@@ -1,232 +1,219 @@
-#include "Combat/CombatDamage.h"
+ï»¿#include "Combat/CombatDamage.h"
 
-float FCombatDamage::GetCurrentAttackDamage() const
+#include "AnimationLogic/AttackAnimationPlayer.h"
+#include "Character/Base.h"
+#include "Combat/CombatSampling.h"
+#include "Combat/CombatStatusSwitch.h"
+#include "DataAsset/AttackMoveDataAsset.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+
+namespace
 {
-	return CurrentBaseDamage * CurrentDamageModifier;
+    FString SafeActorName(const AActor* Actor)
+    {
+        return IsValid(Actor) ? Actor->GetName() : FString(TEXT("æ— "));
+    }
 }
 
-void FCombatDamage::EnableWeaponTrace()
+void FCombatDamage::Initialize()
 {
-	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
-	if (!OwnerCharacter)
-	{
-		return;
-	}
-
-	bWeaponTraceWindowOpen = true;
-	OwnerCharacter->EnableWeaponTrace();
+    CurrentDamageModifier = 1.0f;
+    NextAttackDamageModifier = 1.0f;
+    CurrentBaseDamage = 0.0f;
+    CurrentAttackType = NAME_None;
+    bWeaponTraceWindowOpen = false;
 }
 
-void FCombatDamage::DisableWeaponTrace()
+void FCombatDamage::EnableWeaponTrace(AActor* Owner)
 {
-	ABase* OwnerCharacter = Cast<ABase>(GetOwner());
-	if (!OwnerCharacter)
-	{
-		return;
-	}
+    if (bWeaponTraceWindowOpen)
+    {
+        return;
+    }
 
-	bWeaponTraceWindowOpen = false;
-	OwnerCharacter->DisableWeaponTrace();
+    if (ABase* OwnerCharacter = Cast<ABase>(Owner))
+    {
+        bWeaponTraceWindowOpen = true;
+        OwnerCharacter->EnableWeaponTrace();
+    }
 }
 
-void FCombatDamage::PerformAttack(EAttackDirection Direction, float TrackScore)
+void FCombatDamage::DisableWeaponTrace(AActor* Owner)
 {
-	ABase* OwnerBase = Cast<ABase>(GetOwner());
-	if (OwnerBase && OwnerBase->IsDeflecting())
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("[¹¥»÷½»»¥][¹¥»÷Ê§°Ü] µ±Ç°ÕıÔÚµ¯µ¶£¬²»ÄÜ¹¥»÷ ½ÇÉ«=%s"),
-			GetOwner() ? *GetOwner()->GetName() : TEXT("ÎŞ")
-		);
+    if (!bWeaponTraceWindowOpen)
+    {
+        return;
+    }
 
-		return;
-	}
+    if (ABase* OwnerCharacter = Cast<ABase>(Owner))
+    {
+        bWeaponTraceWindowOpen = false;
+        OwnerCharacter->DisableWeaponTrace();
+    }
+}
 
-	if (Direction == EAttackDirection::None)
-	{
-		return;
-	}
+void FCombatDamage::ForceDisableWeaponTrace(AActor* Owner)
+{
+    bWeaponTraceWindowOpen = false;
+    if (ABase* OwnerCharacter = Cast<ABase>(Owner))
+    {
+        OwnerCharacter->DisableWeaponTrace();
+    }
+}
 
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
+UAnimMontage* FCombatDamage::PerformAttack(
+    AActor* Owner,
+    UWorld* World,
+    const UAttackMoveDataAsset* AttackMoveDataAsset,
+    FCombatStatusSwitch& Status,
+    FCombatSampling& Sampling,
+    EAttackDirection Direction,
+    float TrackScore
+)
+{
+    ABase* OwnerBase = Cast<ABase>(Owner);
 
-	const float CurrentTime = World->GetTimeSeconds();
+    if (OwnerBase && OwnerBase->IsDeflecting())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[æ”»å‡»äº¤äº’][æ”»å‡»å¤±è´¥] å½“å‰æ­£åœ¨å¼¹åˆ€ï¼Œä¸èƒ½æ”»å‡» è§’è‰²=%s"),
+            *SafeActorName(Owner));
+        return nullptr;
+    }
 
-	CombatStatusSwitch.RefreshAttackState(CurrentTime);
+    if (Direction == EAttackDirection::None || !World)
+    {
+        return nullptr;
+    }
 
-	if (CombatStatusSwitch.IsLockedState() && Direction == CombatStatusSwitch.CurrentDirection)
-	{
-		CombatSampling.ClearSamplingBuffer();
-		return;
-	}
+    const float CurrentTime = World->GetTimeSeconds();
+    Status.RefreshAttackState(CurrentTime);
 
-	if (CombatStatusSwitch.IsLockedState())
-	{
-		CombatStatusSwitch.bHasPendingAttack = true;
-		CombatStatusSwitch.PendingDirection = Direction;
-		CombatSampling.PendingTrackScore = TrackScore;
+    if (Status.IsLockedState() && Direction == Status.CurrentDirection)
+    {
+        Sampling.ClearSamplingBuffer();
+        return nullptr;
+    }
 
-		CombatSampling.ClearSamplingBuffer();
-		return;
-	}
+    if (Status.IsLockedState())
+    {
+        Sampling.QueuePendingAttack(Direction, TrackScore);
+        Sampling.ClearSamplingBuffer();
+        return nullptr;
+    }
 
-	const FAttackMoveData* AttackData = CombatSampling.FindAttackMoveByDirection(Direction);
-	if (!AttackData || !AttackData->AttackMontage)
-	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("[¹¥»÷½»»¥][³öÕĞÊ§°Ü] Ô­Òò=Î´ÕÒµ½¹¥»÷¶¯×÷Êı¾İ»òMontageÎª¿Õ ½ÇÉ«=%s ·½Ïò=%d"),
-			GetOwner() ? *GetOwner()->GetName() : TEXT("ÎŞ"),
-			static_cast<int32>(Direction)
-		);
+    const FAttackMoveData* AttackData = Sampling.FindAttackMoveByDirection(AttackMoveDataAsset, Direction);
+    if (!AttackData || !AttackData->AttackMontage)
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("[æ”»å‡»äº¤äº’][å‡ºæ‹›å¤±è´¥] æœªæ‰¾åˆ°æ”»å‡»åŠ¨ä½œæ•°æ®æˆ– Montage ä¸ºç©º è§’è‰²=%s æ–¹å‘=%d"),
+            *SafeActorName(Owner), static_cast<int32>(Direction));
+        return nullptr;
+    }
 
-		return;
-	}
+    float GuardDuration = 0.0f;
+    if (OwnerBase && OwnerBase->TryConvertAttackToGuard(Direction, CurrentTime, GuardDuration))
+    {
+        Status.StartConvertedGuard(Owner, Direction, CurrentTime, GuardDuration);
+        ResetForGuard();
+        Sampling.ClearPendingAttack();
+        Sampling.ClearSamplingBuffer();
+        Status.RefreshAttackState(CurrentTime);
+        return nullptr;
+    }
 
-	float GuardDuration = 0.0f;
+    const float AttackPlayRate = OwnerBase
+        ? OwnerBase->ConsumeNextAttackPlayRateModifier()
+        : 1.0f;
 
-	if (OwnerBase && OwnerBase->TryConvertAttackToGuard(Direction, CurrentTime, GuardDuration))
-	{
-		CombatStatusSwitch.StartConvertedGuard(Direction, CurrentTime, GuardDuration);
-		CombatSampling.ClearPendingAttack();
-		CombatSampling.ClearSamplingBuffer();
-		CombatStatusSwitch.RefreshAttackState(CurrentTime);
-		return;
-	}
+    const FAttackAnimationPlayResult AnimationResult =
+        FAttackAnimationPlayer::PlayAttackMontage(Owner, *AttackData, AttackPlayRate);
 
-	const float AttackPlayRate = OwnerBase
-		? OwnerBase->ConsumeNextAttackPlayRateModifier()
-		: 1.0f;
+    if (!AnimationResult.bSucceeded)
+    {
+        if (OwnerBase && AttackPlayRate > 1.0f)
+        {
+            OwnerBase->GrantNextAttackSpeedBonus(AttackPlayRate);
+        }
 
-	const FAttackAnimationPlayResult AnimationResult =
-		FAttackAnimationPlayer::PlayAttackMontage(GetOwner(), *AttackData, AttackPlayRate);
+        UE_LOG(LogTemp, Error,
+            TEXT("[æ”»å‡»äº¤äº’][å‡ºæ‹›å¤±è´¥] åŸå› =%s è§’è‰²=%s Montage=%s Section=%s æ–¹å‘=%d"),
+            *AnimationResult.ErrorMessage,
+            *SafeActorName(Owner),
+            *GetNameSafe(AttackData->AttackMontage.Get()),
+            *AttackData->MontageSection.ToString(),
+            static_cast<int32>(Direction));
+        return nullptr;
+    }
 
-	if (!AnimationResult.bSucceeded)
-	{
-		if (OwnerBase && AttackPlayRate > 1.0f)
-		{
-			OwnerBase->GrantNextAttackSpeedBonus(AttackPlayRate);
-		}
+    CurrentBaseDamage = AttackData->Damage;
+    CurrentDamageModifier = NextAttackDamageModifier;
+    NextAttackDamageModifier = TrackScore;
+    CurrentAttackType = AttackData->AttackID;
+    bWeaponTraceWindowOpen = false;
 
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("[¹¥»÷½»»¥][³öÕĞÊ§°Ü] Ô­Òò=%s ½ÇÉ«=%s Montage=%s Section=%s ·½Ïò=%d"),
-			*AnimationResult.ErrorMessage,
-			GetOwner() ? *GetOwner()->GetName() : TEXT("ÎŞ"),
-			*GetNameSafe(AttackData->AttackMontage),
-			*AttackData->MontageSection.ToString(),
-			static_cast<int32>(Direction)
-		);
+    Status.MarkAttackMontageStarted(Direction, CurrentTime, AttackData->WindowTime);
+    Status.AttackTriggerCounter++;
 
-		return;
-	}
+    const float ActualCounterAttackValidWindow =
+        AttackData->CounterAttackValidWindow > 0.0f
+        ? AttackData->CounterAttackValidWindow
+        : Status.CounterAttackValidWindow;
 
-	const float PlayedLength = AnimationResult.PlayedLength;
+    if (OwnerBase)
+    {
+        OwnerBase->NotifyWeaponAttackStarted(
+            Direction,
+            CurrentAttackType,
+            Status.CurrentAttackStartTime,
+            CurrentBaseDamage,
+            CurrentDamageModifier,
+            ActualCounterAttackValidWindow
+        );
+    }
 
-	const auto ApplySuccessfulAttackState = [&]()
-		{
-			CombatStatusSwitch.bIsBlocking = false;
+    UE_LOG(LogTemp, Warning,
+        TEXT("[æ”»å‡»äº¤äº’][å‡ºæ‹›æˆåŠŸ] è§’è‰²=%s æ–¹å‘=%d æ”»å‡»ID=%s Montage=%s Section=%s æœ€ç»ˆä¼¤å®³=%.2f æ’­æ”¾å€ç‡=%.3f æŠ¥å‘Šæ—¶é•¿=%.3f è§¦å‘è®¡æ•°=%d"),
+        *SafeActorName(Owner),
+        static_cast<int32>(Direction),
+        *CurrentAttackType.ToString(),
+        *GetNameSafe(AnimationResult.PlayedMontage),
+        *AnimationResult.PlayedSection.ToString(),
+        GetCurrentAttackDamage(),
+        AttackPlayRate,
+        AnimationResult.PlayedLength,
+        Status.AttackTriggerCounter);
 
-			CurrentBaseDamage = AttackData->Damage;
-			CombatDamage.CurrentDamageModifier = CombatDamage.NextAttackDamageModifier;
-			CombatDamage.NextAttackDamageModifier = TrackScore;
-			CombatStatusSwitch.CurrentWindowTime = AttackData->WindowTime;
-			CombatStatusSwitch.CurrentAttackStartTime = CurrentTime;
-			CombatStatusSwitch.CurrentAttackEndTime = CombatStatusSwitch.CurrentAttackStartTime + PlayedLength;
-			CombatStatusSwitch.CurrentDirection = Direction;
-			CurrentAttackType = AttackData->AttackID;
-			bWeaponTraceWindowOpen = false;
-			CombatStatusSwitch.AttackTriggerCounter++;
-		};
+    Sampling.ClearPendingAttack();
+    Sampling.ClearSamplingBuffer();
+    Status.RefreshAttackState(CurrentTime);
 
-	const auto NotifyWeaponAttackStartedIfOwnerIsBase = [&](float ActualCounterAttackValidWindow) -> bool
-		{
-			if (ABase* OwnerCharacter = Cast<ABase>(GetOwner()))
-			{
-				OwnerCharacter->NotifyWeaponAttackStarted(
-					Direction,
-					CurrentAttackType,
-					CombatStatusSwitch.CurrentAttackStartTime,
-					CurrentBaseDamage,
-					CombatDamage.CurrentDamageModifier,
-					ActualCounterAttackValidWindow
-				);
+    return AnimationResult.PlayedMontage;
+}
 
-				return true;
-			}
+void FCombatDamage::ResetForGuard()
+{
+    CurrentBaseDamage = 0.0f;
+    CurrentDamageModifier = 1.0f;
+    CurrentAttackType = FName(TEXT("Guard"));
+    bWeaponTraceWindowOpen = false;
+}
 
-			return false;
-		};
+void FCombatDamage::ResetAfterAttack()
+{
+    CurrentBaseDamage = 0.0f;
+    CurrentDamageModifier = 1.0f;
+    CurrentAttackType = NAME_None;
+    bWeaponTraceWindowOpen = false;
+}
 
-	const auto LogSuccessfulAttackWithPlayRate = [&](float ActualCounterAttackValidWindow)
-		{
-			UE_LOG(
-				LogTemp,
-				Warning,
-				TEXT("[¹¥»÷½»»¥][³öÕĞ³É¹¦] ½ÇÉ«=%s ·½Ïò=%d ¹¥»÷ID=%s Montage=%s Section=%s »ù´¡ÉËº¦=%.2f ±¶ÂÊ=%.3f ×îÖÕÉËº¦=%.2f ¹¥»÷²¥·Å±¶ÂÊ=%.3f ¹¥»÷¿ªÊ¼=%.3f ¹¥»÷Ê±³¤=%.3f ÏìÓ¦´°¿Ú=%.3f ´¥·¢¼ÆÊı=%d"),
-				GetOwner() ? *GetOwner()->GetName() : TEXT("ÎŞ"),
-				static_cast<int32>(Direction),
-				*CurrentAttackType.ToString(),
-				*GetNameSafe(AttackData->AttackMontage),
-				*AttackData->MontageSection.ToString(),
-				CurrentBaseDamage,
-				CombatDamage.CurrentDamageModifier,
-				CombatDamage.GetCurrentAttackDamage(),
-				AttackPlayRate,
-				CombatStatusSwitch.CurrentAttackStartTime,
-				PlayedLength,
-				ActualCounterAttackValidWindow,
-				CombatStatusSwitch.AttackTriggerCounter
-			);
-		};
+void FCombatDamage::ResetAfterInterrupt()
+{
+    ResetAfterAttack();
+}
 
-	const auto LogSuccessfulAttackWithoutPlayRate = [&](float ActualCounterAttackValidWindow)
-		{
-			UE_LOG(
-				LogTemp,
-				Warning,
-				TEXT("[¹¥»÷½»»¥][³öÕĞ³É¹¦] ½ÇÉ«=%s ·½Ïò=%d ¹¥»÷ID=%s Montage=%s Section=%s »ù´¡ÉËº¦=%.2f ±¶ÂÊ=%.3f ×îÖÕÉËº¦=%.2f ¹¥»÷¿ªÊ¼=%.3f ¹¥»÷Ê±³¤=%.3f ÏìÓ¦´°¿Ú=%.3f ´¥·¢¼ÆÊı=%d"),
-				GetOwner() ? *GetOwner()->GetName() : TEXT("ÎŞ"),
-				static_cast<int32>(Direction),
-				*CurrentAttackType.ToString(),
-				*GetNameSafe(AttackData->AttackMontage),
-				*AttackData->MontageSection.ToString(),
-				CurrentBaseDamage,
-				CombatDamage.CurrentDamageModifier,
-				CombatDamage.GetCurrentAttackDamage(),
-				CombatStatusSwitch.CurrentAttackStartTime,
-				PlayedLength,
-				ActualCounterAttackValidWindow,
-				CombatStatusSwitch.AttackTriggerCounter
-			);
-		};
-
-	ApplySuccessfulAttackState();
-
-	const float ActualCounterAttackValidWindow =
-		AttackData->CounterAttackValidWindow > 0.0f
-		? AttackData->CounterAttackValidWindow
-		: CombatStatusSwitch.CounterAttackValidWindow;
-
-	if (NotifyWeaponAttackStartedIfOwnerIsBase(ActualCounterAttackValidWindow))
-	{
-		LogSuccessfulAttackWithPlayRate(ActualCounterAttackValidWindow);
-		return;
-	}
-
-	ApplySuccessfulAttackState();
-
-	NotifyWeaponAttackStartedIfOwnerIsBase(ActualCounterAttackValidWindow);
-	LogSuccessfulAttackWithoutPlayRate(ActualCounterAttackValidWindow);
-
-	CombatSampling.ClearPendingAttack();
-	CombatSampling.ClearSamplingBuffer();
-	CombatStatusSwitch.RefreshAttackState(CurrentTime);
+void FCombatDamage::ResetForDeflect()
+{
+    ResetAfterAttack();
 }

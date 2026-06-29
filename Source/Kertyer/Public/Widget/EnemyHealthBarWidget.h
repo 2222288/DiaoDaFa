@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
@@ -12,12 +12,12 @@ class KERTYER_API UEnemyHealthBarWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	//ÉèÖÃÑªÌõ°Ù·Ö±È
+	//è®¾ç½®è¡€æ¡ç™¾åˆ†æ¯”
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	void SetHealthPercent(float Percent);
 
 protected:
-	//ÑªÌõ½ø¶ÈÌõ×é¼ş
+	//è¡€æ¡è¿›åº¦æ¡ç»„ä»¶
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UProgressBar> HealthProgressBar;
 };

@@ -1,75 +1,91 @@
-#include "Combat/CombatSampling.h"
+﻿#include "Combat/CombatSampling.h"
+
 #include "AnimationLogic/AttackAnimationPlayer.h"
+#include "Combat/CombatStatusSwitch.h"
+#include "DataAsset/AttackMoveDataAsset.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
-
-
-void FCombatSampling::BeginAttackSampling(float CurrentTime)
+void FCombatSampling::BeginAttackSampling(
+	AActor* Owner,
+	FCombatStatusSwitch& Status,
+	float CurrentTime
+)
 {
-	RefreshAttackState(CurrentTime);
+	Status.RefreshAttackState(CurrentTime);
 
-	if (bIsAttackKeyDown)
+	if (Status.bIsAttackKeyDown)
 	{
 		return;
 	}
 
-	if (IsLockedState())
+	if (Status.IsLockedState())
 	{
 		return;
 	}
 
-	if (!FAttackAnimationPlayer::ResolveAnimInstance(GetOwner()))
+	if (!FAttackAnimationPlayer::ResolveAnimInstance(Owner))
 	{
 		return;
 	}
 
-	LastAcceptedInputDirection = EAttackDirection::None;
-	LastAcceptedInputTime = -10000.0f;
-	bIsAttackKeyDown = true;
+	Status.ResetAcceptedInput();
+	Status.bIsAttackKeyDown = true;
 
 	ClearSamplingBuffer();
-	RefreshAttackState(CurrentTime);
+	Status.RefreshAttackState(CurrentTime);
 }
 
-void FCombatSampling::EndAttackSampling()
+void FCombatSampling::EndAttackSampling(UWorld* World, FCombatStatusSwitch& Status)
 {
-	bIsAttackKeyDown = false;
-	LastAcceptedInputDirection = EAttackDirection::None;
-	LastAcceptedInputTime = -10000.0f;
+	Status.bIsAttackKeyDown = false;
+	Status.ResetAcceptedInput();
 
 	ClearSamplingBuffer();
 
-	UWorld* World = GetWorld();
 	const float CurrentTime = World ? World->GetTimeSeconds() : 0.0f;
-
-	RefreshAttackState(CurrentTime);
+	Status.RefreshAttackState(CurrentTime);
 }
 
-void FCombatSampling::CacheMouseInput(const FVector2D& Input, float CurrentTime)
+bool FCombatSampling::CacheMouseInput(
+	const FVector2D& Input,
+	float CurrentTime,
+	FCombatStatusSwitch& Status,
+	EAttackDirection& OutDirection,
+	float& OutTrackScore
+)
 {
-	if (!IsSamplingState())
+	OutDirection = EAttackDirection::None;
+	OutTrackScore = 0.0f;
+
+	if (!Status.IsSamplingState())
 	{
-		return;
+		return false;
 	}
 
 	FAttackValidResult Result;
 	if (!AttackValid.PushInput(Input, CurrentTime, MinSampleDistance, Result))
 	{
-		return;
+		return false;
 	}
 
 	if (!Result.bCanTriggerAttack || Result.Direction == EAttackDirection::None)
 	{
-		return;
+		return false;
 	}
 
-	if (!CanAcceptAttackInput(Result.Direction, CurrentTime))
+	if (!Status.CanAcceptAttackInput(Result.Direction, CurrentTime))
 	{
 		ClearSamplingBuffer();
-		return;
+		return false;
 	}
 
-	MarkAttackInputAccepted(Result.Direction, CurrentTime);
-	PerformAttack(Result.Direction, Result.TrackScore);
+	Status.MarkAttackInputAccepted(Result.Direction, CurrentTime);
+
+	OutDirection = Result.Direction;
+	OutTrackScore = Result.TrackScore;
+
+	return true;
 }
 
 void FCombatSampling::ClearSamplingBuffer()
@@ -84,3 +100,22 @@ void FCombatSampling::ClearPendingAttack()
 	PendingTrackScore = 0.0f;
 }
 
+void FCombatSampling::QueuePendingAttack(EAttackDirection Direction, float TrackScore)
+{
+	bHasPendingAttack = Direction != EAttackDirection::None;
+	PendingDirection = Direction;
+	PendingTrackScore = bHasPendingAttack ? TrackScore : 0.0f;
+}
+
+const FAttackMoveData* FCombatSampling::FindAttackMoveByDirection(
+	const UAttackMoveDataAsset* AttackMoveDataAsset,
+	EAttackDirection InDirection
+) const
+{
+	if (!AttackMoveDataAsset || InDirection == EAttackDirection::None)
+	{
+		return nullptr;
+	}
+
+	return AttackMoveDataAsset->FindAttackByDirection(InDirection);
+}

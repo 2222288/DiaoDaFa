@@ -69,8 +69,8 @@ void ULockOn::ApplyLockOnCursorMode(bool bEnable)
 
 ULockOn::ULockOn()
 {
-	//开启每帧更新
 	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
 void ULockOn::BeginPlay()
@@ -81,6 +81,8 @@ void ULockOn::BeginPlay()
 	{
 		OwnerPC = Cast<APlayerController>(OwnerCharacter->GetController());
 	}
+
+	SetComponentTickEnabled(false);
 }
 //销毁时解除锁定	
 void ULockOn::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -118,7 +120,17 @@ void ULockOn::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponen
 
 void ULockOn::ToggleLockOn()
 {
-	if (!OwnerCharacter) return;
+	if (!OwnerCharacter)
+	{
+		OwnerCharacter = Cast<ACharacter>(GetOwner());
+	}
+
+	if (!OwnerPC && OwnerCharacter)
+	{
+		OwnerPC = Cast<APlayerController>(OwnerCharacter->GetController());
+	}
+
+	if (!OwnerCharacter || !OwnerPC) return;
 
 	if (bLockedOn)
 	{
@@ -142,6 +154,7 @@ void ULockOn::ToggleLockOn()
 		}
 
 		ApplyLockOnCursorMode(true);
+		SetComponentTickEnabled(true);
 	}
 }
 
@@ -425,6 +438,7 @@ void ULockOn::ClearTarget()
 	}
 
 	ApplyLockOnCursorMode(false);
+	SetComponentTickEnabled(false);
 }
 
 //判断当前锁定是否合法 DeltaSeconds遮挡计时
@@ -527,49 +541,76 @@ FVector ULockOn::GetTargetLockPoint(AActor* Target) const
 
 bool ULockOn::IsInKeepAngle(AActor* Target) const
 {
-	if (!OwnerCharacter || !Target) return false;
-
-	// 1. 获取摄像机视点信息
-	FVector CamLoc;
-	FRotator CamRot;
-	if (OwnerPC)
+	// 角色或目标无效时，不能继续保持锁定。
+	if (!IsValid(OwnerCharacter) || !IsValid(Target))
 	{
-		OwnerPC->GetPlayerViewPoint(CamLoc, CamRot);
+		return false;
+	}
+
+	// 获取用于角度判断的朝向。
+	// 正常情况下使用玩家镜头朝向；
+	// 没有玩家控制器时，退回角色身体朝向。
+	FRotator ViewRotation;
+
+	if (IsValid(OwnerPC))
+	{
+		FVector ViewLocation;
+		OwnerPC->GetPlayerViewPoint(ViewLocation, ViewRotation);
 	}
 	else
 	{
-		// 如果没有控制器，才勉强用身体朝向
-		CamRot = OwnerCharacter->GetActorRotation();
+		ViewRotation = OwnerCharacter->GetActorRotation();
 	}
 
-	// 2. 提取视线方向 (Forward)
-	// 这里的 CamRot.Vector() 已经是归一化的单位向量了
-	FVector Forward = CamRot.Vector();
-
-	// 3. 为了公平比对，忽略高度差 (Z轴)，只看水平面的夹角
-	// 这一步很重要，否则如果不抬头看天，很难锁到高处的敌人
+	// 将镜头朝向投影到水平面。
+	// 锁定保持角度只判断水平方向，不受目标高度影响。
+	FVector Forward = ViewRotation.Vector();
 	Forward.Z = 0.0f;
-	Forward.Normalize();
 
-	// -------------------------------------------------------------
+	// 当镜头接近垂直朝上或朝下时，
+	// 投影到水平面后的向量长度可能接近零。
+	if (!Forward.Normalize())
+	{
+		// 使用角色水平朝向作为兜底。
+		Forward = OwnerCharacter->GetActorForwardVector();
+		Forward.Z = 0.0f;
 
-	// 4. 计算指向敌人的向量
-	FVector ToTarget = GetTargetLockPoint(Target) - OwnerCharacter->GetActorLocation();
+		if (!Forward.Normalize())
+		{
+			return false;
+		}
+	}
 
-	// 同样忽略高度差
+	// 获取从角色指向目标锁定点的方向。
+	FVector ToTarget =
+		GetTargetLockPoint(Target)
+		- OwnerCharacter->GetActorLocation();
+
+	// 同样只判断水平角度。
 	ToTarget.Z = 0.0f;
 
-	// 归一化
+	// 角色与目标在水平面位置重合时，
+	// 不应仅因为方向向量无法归一化而解除锁定。
 	if (!ToTarget.Normalize())
 	{
-		// 如果向量太短无法归一化（说明和敌人重合了），直接算在角度内
 		return true;
 	}
 
-	// 5. 计算点积并比对
-	const float Dot = FVector::DotProduct(Forward, ToTarget);
+	// 单位向量点积等于夹角的余弦值。
+	const float Dot =
+		FVector::DotProduct(Forward, ToTarget);
 
-	return Dot >= KeepHalfAngleDeg;
+	// 防止运行时或蓝图中写入非法角度。
+	const float ClampedHalfAngleDeg =
+		FMath::Clamp(KeepHalfAngleDeg, 0.0f, 180.0f);
+
+	// 将角度阈值转换为点积阈值。
+	const float MinAllowedDot =
+		FMath::Cos(
+			FMath::DegreesToRadians(ClampedHalfAngleDeg)
+		);
+
+	return Dot >= MinAllowedDot;
 }
 
 bool ULockOn::IsVisibleToTarget(AActor* Target) const

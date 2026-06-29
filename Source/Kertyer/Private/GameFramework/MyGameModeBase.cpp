@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 
@@ -9,7 +9,7 @@
 
 AMyGameModeBase::AMyGameModeBase()
 {
-	GameStateClass = AMyGameStateBase::StaticClass();              // ÖĞÎÄ×¢ÊÍ£ºÖ¸¶¨È«¾ÖÓÎÏ·×´Ì¬Àà
-	PlayerControllerClass = AMyPlayerController::StaticClass(); // ÖĞÎÄ×¢ÊÍ£ºÖ¸¶¨Íæ¼Ò¿ØÖÆÆ÷Àà
+	GameStateClass = AMyGameStateBase::StaticClass();              // ä¸­æ–‡æ³¨é‡Šï¼šæŒ‡å®šå…¨å±€æ¸¸æˆçŠ¶æ€ç±»
+	PlayerControllerClass = AMyPlayerController::StaticClass(); // ä¸­æ–‡æ³¨é‡Šï¼šæŒ‡å®šç©å®¶æ§åˆ¶å™¨ç±»
 
 }

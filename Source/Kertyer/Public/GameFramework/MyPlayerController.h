@@ -1,56 +1,43 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
-#include "InputActionValue.h"
 #include "MyPlayerController.generated.h"
 
-class UInputMappingContext;
 class UInputAction;
+class UInputMappingContext;
+class ULockOn;
 
-/**
- * 
- */
 UCLASS()
 class KERTYER_API AMyPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-	
+
 protected:
-	AMyPlayerController();
-
 	virtual void BeginPlay() override;
-
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void SetupInputComponent() override;
 
 public:
-
-	//‘ˆ«ø ‰»ÎIMC
-	UPROPERTY(EditDefaultsOnly,BlueprintReadOnly,Category = "Input")
-	TObjectPtr<class UInputMappingContext> DefaultMappingContext;
-
-	// À¯∂®◊Èº˛
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<class ULockOn> Lock;
-
-	// À¯∂®º¸ 
+	// Mapping Context Âè™Áî± Local PlayerController ÁÆ°ÁêÜ„ÄÇ
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<class UInputAction> Lockbutton;
+	TObjectPtr<UInputMappingContext> DefaultMappingContext;
 
-	// ◊Û«–ªªƒø±Íº¸
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<class UInputAction> LLock;
+	TObjectPtr<UInputAction> Lockbutton;
 
-	// ”“«–ªªƒø±Íº¸
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<class UInputAction> RLock;
+	TObjectPtr<UInputAction> LLock;
 
-public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> RLock;
 
 	void OnToggleLockOn();
 	void OnSwitchTargetLeft();
 	void OnSwitchTargetRight();
 
+private:
+	ULockOn* GetControlledLockOn() const;
+
+	bool bMappingContextAdded = false;
 };

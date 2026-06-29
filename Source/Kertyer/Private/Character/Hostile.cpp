@@ -1,276 +1,363 @@
 ﻿#include "Character/Hostile.h"
 
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "AnimationLogic/AttackAnimationPlayer.h"
 #include "Blueprint/UserWidget.h"
-#include "Widget/EnemyHealthBarWidget.h"
-#include "GameFramework/PlayerController.h"
-#include "Components/CapsuleComponent.h"
+#include "Components/BaseHealthComponent.h"
 #include "Components/WidgetComponent.h"
-#include "Kismet/GameplayStatics.h"
 #include "DataAsset/AttackMoveDataAsset.h"
-#include "TimerManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "TimerManager.h"
+#include "Widget/EnemyHealthBarWidget.h"
 
 AHostile::AHostile()
 {
-	PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = false;
 
-	HealthBarWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBarWidget"));
+    HealthBarWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBarWidget"));
 
-	HealthBarWidget->SetupAttachment(GetMesh(), TEXT("head"));
-	HealthBarWidget->SetWidgetSpace(EWidgetSpace::Screen);
-	HealthBarWidget->SetDrawSize(FVector2D(200.0f, 24.0f));
-	HealthBarWidget->SetRelativeLocation(FVector(0.0f, 0.0f, 30.0f));
+    // 构造阶段只声明父组件；Socket 和偏移在 BeginPlay 中读取可配置属性后应用。
+    HealthBarWidget->SetupAttachment(GetMesh());
+    HealthBarWidget->SetWidgetSpace(EWidgetSpace::Screen);
+    HealthBarWidget->SetDrawSize(FVector2D(200.0f, 24.0f));
+    HealthBarWidget->SetVisibility(true);
+    HealthBarWidget->SetHiddenInGame(false);
+    HealthBarWidget->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-	HealthBarWidget->SetVisibility(true);
-	HealthBarWidget->SetHiddenInGame(false);
-	HealthBarWidget->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    bUseControllerRotationYaw = false;
 
-	bUseControllerRotationYaw = false;
-
-	if (GetCharacterMovement())
-	{
-		GetCharacterMovement()->bOrientRotationToMovement = false;
-		GetCharacterMovement()->bUseControllerDesiredRotation = true;
-		GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
-	}
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->bOrientRotationToMovement = false;
+        GetCharacterMovement()->bUseControllerDesiredRotation = true;
+        GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
+    }
 }
 
 void AHostile::BeginPlay()
 {
-	Super::BeginPlay();
+    Super::BeginPlay();
 
-	if (HealthBarWidget)
-	{
-		HealthBarWidget->AttachToComponent(
-			GetMesh(),
-			FAttachmentTransformRules::SnapToTargetNotIncludingScale,
-			TEXT("head")
-		);
-		HealthBarWidget->SetRelativeLocation(FVector(0.0f, 0.0f, 30.0f));
-		HealthBarWidget->InitWidget();
-	}
+    if (HealthBarWidget && GetMesh())
+    {
+        HealthBarWidget->AttachToComponent(
+            GetMesh(),
+            FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+            HealthBarAttachSocketName
+        );
 
-	UpdateHealthBar();
+        HealthBarWidget->SetRelativeLocation(HealthBarOffset);
+        HealthBarWidget->InitWidget();
+    }
+
+    if (BaseHealthComponent)
+    {
+        BaseHealthComponent->OnHealthChanged.AddUniqueDynamic(this, &AHostile::HandleHealthChanged);
+    }
+
+    UpdateHealthBar(GetHealthPercent());
 }
 
-float AHostile::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+void AHostile::HandleHealthChanged(float OldHealth, float NewHealth, float InMaxHealth)
 {
-	const float Result = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
+    static_cast<void>(OldHealth);
 
-	UpdateHealthBar();
-	return Result;
+    UpdateHealthBar(InMaxHealth > 0.0f ? NewHealth / InMaxHealth : 0.0f);
 }
 
-void AHostile::UpdateHealthBar()
+void AHostile::UpdateHealthBar(float HealthPercent)
 {
-	if (!HealthBarWidget) return;
+    if (!HealthBarWidget)
+    {
+        return;
+    }
 
-	UUserWidget* RawWidget = HealthBarWidget->GetUserWidgetObject();
+    UUserWidget* RawWidget = HealthBarWidget->GetUserWidgetObject();
 
-	if (!RawWidget)
-	{
-		//主动初始化控件
-		HealthBarWidget->InitWidget();
-		RawWidget = HealthBarWidget->GetUserWidgetObject();
-	}
+    if (!RawWidget)
+    {
+        HealthBarWidget->InitWidget();
+        RawWidget = HealthBarWidget->GetUserWidgetObject();
+    }
 
-	UEnemyHealthBarWidget* Widget = Cast<UEnemyHealthBarWidget>(RawWidget);
-	if (Widget)
-	{
-		const float HealthPercent = MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
-		Widget->SetHealthPercent(HealthPercent);
-	}
+    if (UEnemyHealthBarWidget* Widget = Cast<UEnemyHealthBarWidget>(RawWidget))
+    {
+        Widget->SetHealthPercent(HealthPercent);
+    }
 }
 
 bool AHostile::CanAttack() const
 {
-	//没在冷却且没在攻击中才能攻击
-	return bCanAttack && !bIsAttacking;
+    return bCanAttack && !bIsAttacking;
 }
 
 float AHostile::GetCurrentAttackDamage() const
 {
-	return CurrentAttackDamage;
+    return CurrentAttackDamage;
 }
 
 const FAttackMoveData* AHostile::GetRandomAttackData() const
 {
-	if (!AttackMoveDataAsset)
-	{
-		return nullptr;
-	}
-
-	return AttackMoveDataAsset->GetRandomAttack();
+    return AttackMoveDataAsset ? AttackMoveDataAsset->GetRandomAttack() : nullptr;
 }
-
 
 void AHostile::Attack()
 {
-	if (!CanAttack())
-	{
-		return;
-	}
+    if (!CanAttack())
+    {
+        return;
+    }
 
-	const FAttackMoveData* AttackData = GetRandomAttackData();
-	if (!AttackData || !AttackData->AttackMontage)
-	{
-		return;
-	}
+    const FAttackMoveData* AttackData = GetRandomAttackData();
 
-	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    if (!AttackData || !AttackData->AttackMontage)
+    {
+        return;
+    }
 
-	float GuardDuration = 0.0f;
-	if (TryConvertAttackToGuard(AttackData->AttackDirection, CurrentTime, GuardDuration))
-	{
-		bIsAttacking = true;
-		bCanAttack = false;
+    const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 
-		CurrentAttackDamage = 0.0f;
-		CurrentHostileAttackDirection = AttackData->AttackDirection;
-		CurrentHostileAttackType = TEXT("Guard");
-		CurrentHostileAttackStartTime = CurrentTime;
+    float GuardDuration = 0.0f;
 
-		const float SafeGuardDuration = FMath::Max(0.1f, GuardDuration);
+    if (TryConvertAttackToGuard(AttackData->AttackDirection, CurrentTime, GuardDuration))
+    {
+        bIsAttacking = true;
+        bCanAttack = false;
+        bWeaponAttackCycleActive = false;
 
-		GetWorldTimerManager().ClearTimer(FinishAttackTimer);
-		GetWorldTimerManager().SetTimer(
-			FinishAttackTimer,
-			this,
-			&AHostile::FinishAttack,
-			SafeGuardDuration,
-			false
-		);
+        CurrentAttackDamage = 0.0f;
+        CurrentHostileAttackDirection = AttackData->AttackDirection;
+        CurrentHostileAttackType = TEXT("Guard");
+        CurrentHostileAttackStartTime = CurrentTime;
 
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("敌人攻击请求被转换为格挡: Direction=%d, Duration=%f"),
-			static_cast<int32>(CurrentHostileAttackDirection),
-			SafeGuardDuration
-		);
+        const float SafeGuardDuration = FMath::Max(0.1f, GuardDuration);
 
-		return;
-	}
+        GetWorldTimerManager().ClearTimer(ConvertedGuardFinishTimer);
+        GetWorldTimerManager().SetTimer(
+            ConvertedGuardFinishTimer,
+            this,
+            &AHostile::FinishConvertedGuard,
+            SafeGuardDuration,
+            false
+        );
 
-	const float AttackPlayRate = ConsumeNextAttackPlayRateModifier();
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("敌人攻击请求被转换为格挡: Direction=%d, Duration=%f"),
+            static_cast<int32>(CurrentHostileAttackDirection),
+            SafeGuardDuration
+        );
 
-	const float ActualCounterAttackValidWindow =
-		AttackData->CounterAttackValidWindow > 0.0f
-		? AttackData->CounterAttackValidWindow
-		: 0.5f;
+        return;
+    }
 
-	CurrentAttackDamage = AttackData->Damage;
-	CurrentHostileAttackDirection = AttackData->AttackDirection;
-	CurrentHostileAttackType = AttackData->AttackID;
-	CurrentHostileAttackStartTime = CurrentTime;
+    const float AttackPlayRate = ConsumeNextAttackPlayRateModifier();
 
-	const FAttackAnimationPlayResult AnimationResult =
-		FAttackAnimationPlayer::PlayAttackMontage(this, *AttackData, AttackPlayRate);
+    const float ActualCounterAttackValidWindow =
+        AttackData->CounterAttackValidWindow > 0.0f
+        ? AttackData->CounterAttackValidWindow
+        : 0.5f;
 
-	if (!AnimationResult.bSucceeded)
-	{
-		if (AttackPlayRate > 1.0f)
-		{
-			GrantNextAttackSpeedBonus(AttackPlayRate);
-		}
+    CurrentAttackDamage = AttackData->Damage;
+    CurrentHostileAttackDirection = AttackData->AttackDirection;
+    CurrentHostileAttackType = AttackData->AttackID;
+    CurrentHostileAttackStartTime = CurrentTime;
 
-		CurrentAttackDamage = 0.0f;
-		CurrentHostileAttackDirection = EAttackDirection::None;
-		CurrentHostileAttackType = NAME_None;
-		CurrentHostileAttackStartTime = 0.0f;
+    const FAttackAnimationPlayResult AnimationResult =
+        FAttackAnimationPlayer::PlayAttackMontage(this, *AttackData, AttackPlayRate);
 
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("敌人攻击动画播放失败: AttackID=%s, Section=%s, PlayRate=%f, Error=%s"),
-			*AttackData->AttackID.ToString(),
-			*AttackData->MontageSection.ToString(),
-			AttackPlayRate,
-			*AnimationResult.ErrorMessage
-		);
+    if (!AnimationResult.bSucceeded)
+    {
+        if (AttackPlayRate > 1.0f)
+        {
+            GrantNextAttackSpeedBonus(AttackPlayRate);
+        }
 
-		return;
-	}
+        CompleteAttackState(nullptr, true, TEXT("PlayFailed"));
 
-	bIsAttacking = true;
-	bCanAttack = false;
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("敌人攻击动画播放失败: AttackID=%s, Section=%s, PlayRate=%f, Error=%s"),
+            *AttackData->AttackID.ToString(),
+            *AttackData->MontageSection.ToString(),
+            AttackPlayRate,
+            *AnimationResult.ErrorMessage
+        );
 
-	NotifyWeaponAttackStarted(
-		CurrentHostileAttackDirection,
-		CurrentHostileAttackType,
-		CurrentHostileAttackStartTime,
-		AttackData->Damage,
-		1.0f,
-		ActualCounterAttackValidWindow
-	);
+        return;
+    }
 
-	float AttackDuration = AnimationResult.PlayedLength;
+    bIsAttacking = true;
+    bCanAttack = false;
 
-	if (AttackDuration <= 0.0f && AnimationResult.PlayedMontage)
-	{
-		AttackDuration = AnimationResult.PlayedMontage->GetPlayLength();
-	}
+    if (!BindAttackMontageDelegates(AnimationResult.PlayedMontage))
+    {
+        FAttackAnimationPlayer::StopAttackMontage(this, AnimationResult.PlayedMontage, 0.10f);
+        CompleteAttackState(nullptr, true, TEXT("DelegateBindFailed"));
+        return;
+    }
 
-	if (AttackDuration <= 0.0f)
-	{
-		AttackDuration = 0.1f;
-	}
+    NotifyWeaponAttackStarted(
+        CurrentHostileAttackDirection,
+        CurrentHostileAttackType,
+        CurrentHostileAttackStartTime,
+        AttackData->Damage,
+        1.0f,
+        ActualCounterAttackValidWindow
+    );
 
-	GetWorldTimerManager().ClearTimer(FinishAttackTimer);
-	GetWorldTimerManager().SetTimer(
-		FinishAttackTimer,
-		this,
-		&AHostile::FinishAttack,
-		AttackDuration,
-		false
-	);
+    bWeaponAttackCycleActive = true;
 
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("敌人发起攻击: AttackID=%s, Section=%s, Damage=%f, Duration=%f, ResponseWindow=%f, PlayRate=%f"),
-		*CurrentHostileAttackType.ToString(),
-		*AnimationResult.PlayedSection.ToString(),
-		CurrentAttackDamage,
-		AttackDuration,
-		ActualCounterAttackValidWindow,
-		AttackPlayRate
-	);
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("敌人发起攻击: AttackID=%s, Section=%s, Damage=%f, ReportedDuration=%f, ResponseWindow=%f, PlayRate=%f"),
+        *CurrentHostileAttackType.ToString(),
+        *AnimationResult.PlayedSection.ToString(),
+        CurrentAttackDamage,
+        AnimationResult.PlayedLength,
+        ActualCounterAttackValidWindow,
+        AttackPlayRate
+    );
 }
 
-void AHostile::FinishAttack()
+bool AHostile::BindAttackMontageDelegates(UAnimMontage* Montage)
 {
-	DisableWeaponTrace();
+    if (!Montage)
+    {
+        return false;
+    }
 
-	bIsAttacking = false;
-	bCanAttack = true;
+    UAnimInstance* AnimInstance = FAttackAnimationPlayer::ResolveAnimInstance(this);
 
-	UE_LOG(LogTemp, Warning, TEXT("敌人攻击动作结束"));
+    if (!AnimInstance)
+    {
+        return false;
+    }
+
+    CurrentAttackMontage = Montage;
+
+    FOnMontageBlendingOutStarted BlendingOutDelegate;
+    BlendingOutDelegate.BindUObject(this, &AHostile::HandleAttackMontageBlendingOut);
+    AnimInstance->Montage_SetBlendingOutDelegate(BlendingOutDelegate, Montage);
+
+    FOnMontageEnded EndDelegate;
+    EndDelegate.BindUObject(this, &AHostile::HandleAttackMontageEnded);
+    AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
+
+    return true;
+}
+
+void AHostile::HandleAttackMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
+{
+    CompleteAttackState(Montage, bInterrupted, TEXT("BlendingOut"));
+}
+
+void AHostile::HandleAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+    CompleteAttackState(Montage, bInterrupted, TEXT("Ended"));
+}
+
+void AHostile::CompleteAttackState(
+    UAnimMontage* Montage,
+    bool bInterrupted,
+    const TCHAR* EventSource
+)
+{
+    if (Montage && CurrentAttackMontage != Montage)
+    {
+        return;
+    }
+
+    const FName FinishedAttackType = CurrentHostileAttackType;
+    UAnimMontage* FinishedMontage = Montage ? Montage : CurrentAttackMontage.Get();
+    const bool bShouldFinishWeaponAttack = bWeaponAttackCycleActive;
+
+    GetWorldTimerManager().ClearTimer(ConvertedGuardFinishTimer);
+
+    /*
+     * 普通攻击和转换 Guard 走不同生命周期：
+     *
+     * 1. 普通攻击：
+     *    NotifyWeaponAttackStarted 已经把武器切入攻击周期。
+     *    结束时必须调用 NotifyWeaponAttackFinished。
+     *    这样 AWeaponBase::CompleteAttackCycle 才能统一清理：
+     *    - Trace
+     *    - 武器攻击状态
+     *    - 当前攻击方向
+     *    - 当前攻击数据
+     *
+     * 2. 转换 Guard / 播放失败：
+     *    没有开启武器攻击周期。
+     *    这里只做防御性关闭 Trace，不调用 NotifyWeaponAttackFinished。
+     */
+    if (bShouldFinishWeaponAttack)
+    {
+        DisableWeaponTrace();
+        NotifyWeaponAttackFinished(bInterrupted);
+        bWeaponAttackCycleActive = false;
+    }
+    else
+    {
+        DisableWeaponTrace();
+    }
+
+    CurrentAttackMontage = nullptr;
+    bIsAttacking = false;
+    bCanAttack = true;
+    CurrentAttackDamage = 0.0f;
+    CurrentHostileAttackDirection = EAttackDirection::None;
+    CurrentHostileAttackType = NAME_None;
+    CurrentHostileAttackStartTime = 0.0f;
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[敌人攻击][状态清理] 敌人=%s AttackID=%s Montage=%s 来源=%s 是否中断=%s"),
+        *GetName(),
+        *FinishedAttackType.ToString(),
+        *GetNameSafe(FinishedMontage),
+        EventSource,
+        bInterrupted ? TEXT("是") : TEXT("否")
+    );
+}
+
+void AHostile::FinishConvertedGuard()
+{
+    CompleteAttackState(nullptr, false, TEXT("ConvertedGuardTimer"));
+}
+
+void AHostile::CancelActiveAttack(const FString& Reason)
+{
+    UAnimMontage* MontageToStop = CurrentAttackMontage.Get();
+
+    CompleteAttackState(MontageToStop, true, TEXT("CancelAttack"));
+
+    if (MontageToStop)
+    {
+        FAttackAnimationPlayer::StopAttackMontage(this, MontageToStop, 0.10f);
+    }
+
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[敌人攻击][统一取消] 敌人=%s 原因=%s"),
+        *GetName(),
+        *Reason
+    );
 }
 
 void AHostile::OnAttackCancelledByGuard(AActor* GuardActor, const FString& Reason)
 {
-	GetWorldTimerManager().ClearTimer(EnableDamageTimer);
-	GetWorldTimerManager().ClearTimer(DisableDamageTimer);
-	GetWorldTimerManager().ClearTimer(FinishAttackTimer);
-
-	DisableWeaponTrace();
-
-	bIsAttacking = false;
-	bCanAttack = true;
-
-	CurrentAttackDamage = 0.0f;
-	CurrentHostileAttackDirection = EAttackDirection::None;
-	CurrentHostileAttackType = NAME_None;
-	CurrentHostileAttackStartTime = 0.0f;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[敌人攻击][被格挡取消] 敌人=%s 格挡者=%s 原因=%s"),
-		*GetName(),
-		GuardActor ? *GuardActor->GetName() : TEXT("无"),
-		*Reason
-	);
+    UE_LOG(
+        LogTemp,
+        Warning,
+        TEXT("[敌人攻击][被格挡取消] 敌人=%s 格挡者=%s 原因=%s"),
+        *GetName(),
+        GuardActor ? *GuardActor->GetName() : TEXT("无"),
+        *Reason
+    );
 }

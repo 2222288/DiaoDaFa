@@ -1,307 +1,272 @@
 ﻿#include "Combat/CombatStatusSwitch.h"
 
+#include "Combat/CombatSampling.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
-//日志调用
 namespace
 {
-	const TCHAR* AttackDirectionToChinese(EAttackDirection Direction)
-	{
-		switch (Direction)
-		{
-		case EAttackDirection::None: return TEXT("无");
-		case EAttackDirection::Up: return TEXT("上");
-		case EAttackDirection::UpRight: return TEXT("右上");
-		case EAttackDirection::Right: return TEXT("右");
-		case EAttackDirection::DownRight: return TEXT("右下");
-		case EAttackDirection::Down: return TEXT("下");
-		case EAttackDirection::DownLeft: return TEXT("左下");
-		case EAttackDirection::Left: return TEXT("左");
-		case EAttackDirection::UpLeft: return TEXT("左上");
-		default: return TEXT("未知方向");
-		}
-	}
+    const TCHAR* AttackDirectionToChinese(EAttackDirection Direction)
+    {
+        switch (Direction)
+        {
+        case EAttackDirection::None: return TEXT("无");
+        case EAttackDirection::Up: return TEXT("上");
+        case EAttackDirection::UpRight: return TEXT("右上");
+        case EAttackDirection::Right: return TEXT("右");
+        case EAttackDirection::DownRight: return TEXT("右下");
+        case EAttackDirection::Down: return TEXT("下");
+        case EAttackDirection::DownLeft: return TEXT("左下");
+        case EAttackDirection::Left: return TEXT("左");
+        case EAttackDirection::UpLeft: return TEXT("左上");
+        default: return TEXT("未知方向");
+        }
+    }
 
-	const TCHAR* AttackStateToChinese(EAttackState State)
-	{
-		switch (State)
-		{
-		case EAttackState::Idle: return TEXT("空闲");
-		case EAttackState::Sampling: return TEXT("采样中");
-		case EAttackState::AttackingLocked: return TEXT("攻击锁定");
-		case EAttackState::ComboWindowOpen: return TEXT("连击窗口打开");
-		case EAttackState::SamplingLocked: return TEXT("采样但攻击锁定");
-		case EAttackState::SamplingComboWindow: return TEXT("采样且连击窗口打开");
-		default: return TEXT("未知状态");
-		}
-	}
-
-	FString SafeActorName(const AActor* Actor)
-	{
-		return IsValid(Actor) ? Actor->GetName() : TEXT("无");
-	}
-
-	FString SafeNameText(FName Name)
-	{
-		return Name.IsNone() ? FString(TEXT("无")) : Name.ToString();
-	}
+    FString SafeActorName(const AActor* Actor)
+    {
+        return IsValid(Actor) ? Actor->GetName() : FString(TEXT("无"));
+    }
 }
 
-void FCombatStatusSwitch::GetActor(float DeltaTime, AActor* Actor, UWorld* World)
+void FCombatStatusSwitch::Initialize()
 {
-	CSDeltaTime = DeltaTime;
-	CSActor = Actor;
-	CSWorld = World;
+    bIsAttackKeyDown = false;
+    CurrentWindowTime = 0.0f;
+    bIsBlocking = false;
+    bIsDeflecting = false;
+    bAttackMontageActive = false;
+    bConvertedGuardActive = false;
+    CurrentAttackStartTime = -1.0f;
+    ConvertedGuardEndTime = -1.0f;
+    CurrentDirection = EAttackDirection::None;
+    AttackState = EAttackState::Idle;
+    ResetAcceptedInput();
+    AttackTriggerCounter = 0;
 }
 
 void FCombatStatusSwitch::RefreshAttackState(float CurrentTime)
 {
-	//是否存在未结束的攻击
-	const bool bActiveAttack = HasActiveAttack(CurrentTime);
+    if (bConvertedGuardActive && CurrentTime >= ConvertedGuardEndTime)
+    {
+        bConvertedGuardActive = false;
+        bIsBlocking = false;
+        ConvertedGuardEndTime = -1.0f;
+    }
 
-	if (!bActiveAttack)
-	{
-		CurrentAttackStartTime = -1.f;
-		CurrentAttackEndTime = -1.f;
-		CurrentWindowTime = 0.0f;
+    if (!HasActiveAttack(CurrentTime))
+    {
+        CurrentAttackStartTime = -1.0f;
+        CurrentWindowTime = 0.0f;
+        CurrentDirection = EAttackDirection::None;
+        AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
+        return;
+    }
 
-		AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
-		return;
-	}
+    // 攻击转格挡不开放连段窗口；它仍使用 Guard 动画返回时长进行兼容计时。
+    if (bConvertedGuardActive && !bAttackMontageActive)
+    {
+        AttackState = bIsAttackKeyDown
+            ? EAttackState::SamplingLocked
+            : EAttackState::AttackingLocked;
+        return;
+    }
 
-	//连击窗口时间
-	const float Window = FMath::Max(0.1f, CurrentWindowTime);
-	//连击窗口开始时间
-	const float WindowStartTime = CurrentAttackStartTime + Window;
-	//连击窗口是否已经开始
-	const bool bWindowOpen = CurrentTime >= WindowStartTime;
+    const float Window = FMath::Max(0.0f, CurrentWindowTime);
+    const bool bWindowOpen = CurrentTime >= CurrentAttackStartTime + Window;
 
-	if (bIsAttackKeyDown)
-	{
-		AttackState = bWindowOpen
-			? EAttackState::SamplingComboWindow
-			: EAttackState::SamplingLocked;
-	}
-	else
-	{
-		AttackState = bWindowOpen
-			? EAttackState::ComboWindowOpen
-			: EAttackState::AttackingLocked;
-	}
+    if (bIsAttackKeyDown)
+    {
+        AttackState = bWindowOpen
+            ? EAttackState::SamplingComboWindow
+            : EAttackState::SamplingLocked;
+    }
+    else
+    {
+        AttackState = bWindowOpen
+            ? EAttackState::ComboWindowOpen
+            : EAttackState::AttackingLocked;
+    }
 }
 
 bool FCombatStatusSwitch::HasActiveAttack(float CurrentTime) const
 {
-	return CurrentAttackEndTime > 0.0f && CurrentTime < CurrentAttackEndTime;
+    return bAttackMontageActive
+        || (bConvertedGuardActive && ConvertedGuardEndTime > 0.0f && CurrentTime < ConvertedGuardEndTime);
 }
 
+bool FCombatStatusSwitch::IsAttackActive(const UWorld* World) const
+{
+    return World && HasActiveAttack(World->GetTimeSeconds());
+}
 
 bool FCombatStatusSwitch::IsSamplingState() const
 {
-	return AttackState == EAttackState::Sampling
-		|| AttackState == EAttackState::SamplingLocked
-		|| AttackState == EAttackState::SamplingComboWindow;
+    return AttackState == EAttackState::Sampling
+        || AttackState == EAttackState::SamplingLocked
+        || AttackState == EAttackState::SamplingComboWindow;
 }
 
 bool FCombatStatusSwitch::IsLockedState() const
 {
-	return AttackState == EAttackState::AttackingLocked
-		|| AttackState == EAttackState::SamplingLocked;
+    return AttackState == EAttackState::AttackingLocked
+        || AttackState == EAttackState::SamplingLocked;
 }
 
-bool FCombatSampling::CanAcceptAttackInput(EAttackDirection Direction, float CurrentTime) const
+bool FCombatStatusSwitch::CanAcceptAttackInput(EAttackDirection Direction, float CurrentTime) const
 {
-	if (Direction == EAttackDirection::None)
-	{
-		return false;
-	}
+    if (Direction == EAttackDirection::None)
+    {
+        return false;
+    }
 
-	if (LastAcceptedInputDirection == EAttackDirection::None)
-	{
-		return true;
-	}
+    if (LastAcceptedInputDirection == EAttackDirection::None)
+    {
+        return true;
+    }
 
-	const float Elapsed = CurrentTime - LastAcceptedInputTime;
+    const float Elapsed = CurrentTime - LastAcceptedInputTime;
+    if (Direction == LastAcceptedInputDirection)
+    {
+        return false;
+    }
 
-	if (Direction == LastAcceptedInputDirection)
-	{
-		return false;
-	}
-
-	if (Elapsed < DirectionSwitchCooldown)
-	{
-		return false;
-	}
-
-	if (Elapsed < AttackRequestCooldown)
-	{
-		return false;
-	}
-
-	return true;
+    return Elapsed >= DirectionSwitchCooldown && Elapsed >= AttackRequestCooldown;
 }
 
 void FCombatStatusSwitch::MarkAttackInputAccepted(EAttackDirection Direction, float CurrentTime)
 {
-	LastAcceptedInputDirection = Direction;
-	LastAcceptedInputTime = CurrentTime;
+    LastAcceptedInputDirection = Direction;
+    LastAcceptedInputTime = CurrentTime;
 }
 
-void FCombatSampling::StartBlock()
+void FCombatStatusSwitch::ResetAcceptedInput()
 {
-	if (bIsBlocking)
-	{
-		return;
-	}
-
-	bIsBlocking = true;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][格挡开始] 角色=%s 当前攻击状态=%d"),
-		CSActor ? *CSActor->GetName() : TEXT("无"),
-		static_cast<int32>(AttackState)
-	);
+    LastAcceptedInputDirection = EAttackDirection::None;
+    LastAcceptedInputTime = -10000.0f;
 }
 
-void FCombatStatusSwitch::StopBlock()
+void FCombatStatusSwitch::StartBlock(AActor* Owner)
 {
-	if (!bIsBlocking)
-	{
-		return;
-	}
+    if (bIsBlocking)
+    {
+        return;
+    }
 
-	bIsBlocking = false;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][格挡结束] 角色=%s 当前攻击状态=%d"),
-		CSActor ? *CSActor->GetName() : TEXT("无"),
-		static_cast<int32>(AttackState)
-	);
+    bIsBlocking = true;
+    UE_LOG(LogTemp, Warning, TEXT("[攻击交互][格挡开始] 角色=%s 当前攻击状态=%d"),
+        *SafeActorName(Owner), static_cast<int32>(AttackState));
 }
 
-bool FCombatStatusSwitch::IsAttackActive() const
+void FCombatStatusSwitch::StopBlock(AActor* Owner)
 {
-	UWorld* World = CSWorld;
-	if (!World)
-	{
-		return false;
-	}
+    if (!bIsBlocking)
+    {
+        return;
+    }
 
-	return HasActiveAttack(World->GetTimeSeconds());
-
+    bIsBlocking = false;
+    UE_LOG(LogTemp, Warning, TEXT("[攻击交互][格挡结束] 角色=%s 当前攻击状态=%d"),
+        *SafeActorName(Owner), static_cast<int32>(AttackState));
 }
 
 void FCombatStatusSwitch::StartConvertedGuard(
-	EAttackDirection Direction,
-	float CurrentTime,
-	float GuardDuration
+    AActor* Owner,
+    EAttackDirection Direction,
+    float CurrentTime,
+    float GuardDuration
 )
 {
-	const float SafeGuardDuration = FMath::Max(0.1f, GuardDuration);
+    const float SafeGuardDuration = FMath::Max(0.1f, GuardDuration);
 
-	bIsBlocking = true;
-	bIsDeflecting = false;
+    bIsBlocking = true;
+    bIsDeflecting = false;
+    bAttackMontageActive = false;
+    bConvertedGuardActive = true;
+    CurrentWindowTime = SafeGuardDuration;
+    CurrentAttackStartTime = CurrentTime;
+    ConvertedGuardEndTime = CurrentTime + SafeGuardDuration;
+    CurrentDirection = Direction;
 
-	CombatDamage.CurrentBaseDamage = 0.0f;
-	CombatDamage.CurrentDamageModifier = 1.0f;
-	CurrentWindowTime = SafeGuardDuration;
-	CurrentAttackStartTime = CurrentTime;
-	CurrentAttackEndTime = CurrentTime + SafeGuardDuration;
-	CurrentDirection = Direction;
-	CurrentAttackType = TEXT("Guard");
-	bWeaponTraceWindowOpen = false;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][攻击转格挡] 角色=%s 方向=%s 开始=%.3f 时长=%.3f"),
-		CSActor ? *CSActor->GetName() : TEXT("无"),
-		AttackDirectionToChinese(Direction),
-		CurrentAttackStartTime,
-		SafeGuardDuration
-	);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][攻击转格挡] 角色=%s 方向=%s 开始=%.3f 时长=%.3f"),
+        *SafeActorName(Owner), AttackDirectionToChinese(Direction), CurrentAttackStartTime, SafeGuardDuration);
 }
 
-void FCombatStatusSwitch::StartDeflect()
+void FCombatStatusSwitch::MarkAttackMontageStarted(
+    EAttackDirection Direction,
+    float CurrentTime,
+    float ComboWindowTime
+)
 {
-	if (bIsDeflecting)
-	{
-		return;
-	}
-
-	bIsDeflecting = true;
-
-	// 弹刀时不应继续保持格挡有效帧
-	bIsBlocking = false;
-
-	// 弹刀时当前攻击被打断，防止继续造成伤害
-	CurrentAttackStartTime = -1.0f;
-	CombatDamage.CurrentBaseDamage = 0.0f;
-	CombatDamage.CurrentDamageModifier = 1.0f;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][弹刀开始] 角色=%s"),
-		CSActor ? *CSActor->GetName() : TEXT("无")
-	);
+    bIsBlocking = false;
+    bIsDeflecting = false;
+    bAttackMontageActive = true;
+    bConvertedGuardActive = false;
+    ConvertedGuardEndTime = -1.0f;
+    CurrentDirection = Direction;
+    CurrentAttackStartTime = CurrentTime;
+    CurrentWindowTime = FMath::Max(0.0f, ComboWindowTime);
 }
 
-void FCombatStatusSwitch::EndDeflect()
+void FCombatStatusSwitch::CompleteCurrentAttack(
+    AActor* Owner,
+    FCombatSampling& Sampling,
+    bool bInterrupted
+)
 {
-	if (!bIsDeflecting)
-	{
-		return;
-	}
+    bAttackMontageActive = false;
+    bConvertedGuardActive = false;
+    bIsBlocking = false;
+    bIsDeflecting = false;
+    CurrentAttackStartTime = -1.0f;
+    ConvertedGuardEndTime = -1.0f;
+    CurrentWindowTime = 0.0f;
+    CurrentDirection = EAttackDirection::None;
 
-	bIsDeflecting = false;
+    if (bInterrupted)
+    {
+        Sampling.ClearPendingAttack();
+    }
+    Sampling.ClearSamplingBuffer();
 
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][弹刀结束] 角色=%s"),
-		CSActor ? *CSActor->GetName() : TEXT("无")
-	);
+    AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[攻击交互][攻击状态清理] 角色=%s 是否中断=%s 新状态=%d"),
+        *SafeActorName(Owner), bInterrupted ? TEXT("是") : TEXT("否"), static_cast<int32>(AttackState));
 }
 
-void FCombatStatusSwitch::InterruptCurrentAttack()
+void FCombatStatusSwitch::InterruptCurrentAttack(AActor* Owner, FCombatSampling& Sampling)
 {
-	FAttackAnimationPlayer::StopAttackMontage(CSActor, nullptr, 0.1f);
-
-	bIsBlocking = false;
-	bIsDeflecting = false;
-
-	CurrentAttackStartTime = -1.0f;
-	CurrentAttackEndTime = -1.0f;
-	CurrentWindowTime = 0.0f;
-	CurrentDirection = EAttackDirection::None;
-	CurrentAttackType = NAME_None;
-	CombatDamage.CurrentBaseDamage = 0.0f;
-	bWeaponTraceWindowOpen = false;
-
-	ClearPendingAttack();
-	ClearSamplingBuffer();
-
-	AttackState = bIsAttackKeyDown ? EAttackState::Sampling : EAttackState::Idle;
-
-	UE_LOG(
-		LogTemp,
-		Warning,
-		TEXT("[攻击交互][攻击组件被打断] 角色=%s 新状态=%d"),
-		CSActor ? *CSActor->GetName() : TEXT("无"),
-		static_cast<int32>(AttackState)
-	);
+    CompleteCurrentAttack(Owner, Sampling, true);
 }
 
-const FAttackMoveData* FCombatStatusSwitch::FindAttackMoveByDirection(EAttackDirection InDirection) const
+void FCombatStatusSwitch::StartDeflect(AActor* Owner)
 {
-	if (!AttackMoveDataAsset || InDirection == EAttackDirection::None)
-	{
-		return nullptr;
-	}
+    if (bIsDeflecting)
+    {
+        return;
+    }
 
-	return AttackMoveDataAsset->FindAttackByDirection(InDirection);
+    bIsDeflecting = true;
+    bIsBlocking = false;
+    bAttackMontageActive = false;
+    bConvertedGuardActive = false;
+    CurrentAttackStartTime = -1.0f;
+    ConvertedGuardEndTime = -1.0f;
+    CurrentDirection = EAttackDirection::None;
+
+    UE_LOG(LogTemp, Warning, TEXT("[攻击交互][弹刀开始] 角色=%s"), *SafeActorName(Owner));
+}
+
+void FCombatStatusSwitch::EndDeflect(AActor* Owner)
+{
+    if (!bIsDeflecting)
+    {
+        return;
+    }
+
+    bIsDeflecting = false;
+    UE_LOG(LogTemp, Warning, TEXT("[攻击交互][弹刀结束] 角色=%s"), *SafeActorName(Owner));
 }

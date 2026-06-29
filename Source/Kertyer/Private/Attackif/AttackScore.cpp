@@ -1,4 +1,4 @@
-#include "Attackif/AttackScore.h"
+﻿#include "Attackif/AttackScore.h"
 
 
 float AttackScore::CalculateTrackScore(

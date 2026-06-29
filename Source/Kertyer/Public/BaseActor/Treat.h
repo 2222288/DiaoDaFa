@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -18,22 +18,22 @@ public:
     virtual void Tick(float DeltaTime) override;
 protected:
 
-    // ¾²Ì¬Íø¸ñÌå (ÓÃÀ´ÏÔÊ¾ÏİÚåµÄÑù×Ó£¬±ÈÈçµØ´Ì)
+    // é™æ€ç½‘æ ¼ä½“ (ç”¨æ¥æ˜¾ç¤ºé™·é˜±çš„æ ·å­ï¼Œæ¯”å¦‚åœ°åˆº)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trap Properties")
     TObjectPtr<class UStaticMeshComponent> MeshComp;
 
-    // Åö×²ºĞ (ÓÃÀ´¼ì²âÓĞÃ»ÓĞÈË²ÈÉÏÈ¥)
+    // ç¢°æ’ç›’ (ç”¨æ¥æ£€æµ‹æœ‰æ²¡æœ‰äººè¸©ä¸Šå»)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Trap Properties")
     TObjectPtr<class UBoxComponent> TreatBox;
 
-    // ÉËº¦ÊıÖµ (¿ÉÒÔÔÚ±à¼­Æ÷ÀïÅäÖÃ)
+    // ä¼¤å®³æ•°å€¼ (å¯ä»¥åœ¨ç¼–è¾‘å™¨é‡Œé…ç½®)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap Properties")
     float Treatmentamount = 20.0f;
 
 private:
     virtual void BeginPlay() override;
 
-	// ÖØµşÊÂ¼ş´¦ÀíÖÎÁÆº¯Êı
+	// é‡å äº‹ä»¶å¤„ç†æ²»ç–—å‡½æ•°
     UFUNCTION()
     void OnHealOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 

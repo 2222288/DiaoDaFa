@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+ï»¿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -17,9 +17,9 @@ class KERTYER_API AMyGameStateBase : public AGameStateBase
 public:
 	AMyGameStateBase();
 
-	// Ê¾Àı£ºÈ«¾Ö½×¶Î£¨±ÈÈçÌ½Ë÷/Õ½¶·/½áËã£©
+	// ç¤ºä¾‹ï¼šå…¨å±€é˜¶æ®µï¼ˆæ¯”å¦‚æ¢ç´¢/æˆ˜æ–—/ç»“ç®—ï¼‰
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "State")
-	int32 Phase = 0; // ÖĞÎÄ×¢ÊÍ£ºÈ«¾Ö½×¶Î£¬ÁªÍøÊ±»áÍ¬²½µ½¿Í»§¶Ë
+	int32 Phase = 0; // ä¸­æ–‡æ³¨é‡Šï¼šå…¨å±€é˜¶æ®µï¼Œè”ç½‘æ—¶ä¼šåŒæ­¥åˆ°å®¢æˆ·ç«¯
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
